@@ -1,2 +1,3 @@
 package com.ssafy.layover.course.dto;
 // Moved to com.ssafy.layover.course.TransportInfoResponse
+class TransportInfoResponse {}
