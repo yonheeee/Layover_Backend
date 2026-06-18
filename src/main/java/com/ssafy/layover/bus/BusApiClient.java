@@ -6,7 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -15,7 +16,6 @@ import org.xml.sax.InputSource;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
-import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -59,13 +59,10 @@ public class BusApiClient {
     }
 
     private List<BusStop> fetchPage(int page) throws Exception {
-        // UriComponentsBuilder로 serviceKey 인코딩 처리 (RestTemplate 이중 인코딩 방지)
-        URI uri = UriComponentsBuilder.fromHttpUrl(BASE_URL)
-                .queryParam("serviceKey", serviceKey)
-                .queryParam("reqPage", page)
-                .build(true)   // true = 이미 인코딩된 값 그대로 사용
-                .toUri();
-        String xml = restTemplate.getForObject(uri, String.class);
+        String encodedKey = URLEncoder.encode(serviceKey, StandardCharsets.UTF_8);
+        String url = BASE_URL + "?serviceKey=" + encodedKey + "&reqPage=" + page;
+        log.info("버스 API 요청 URL: {}", url);
+        String xml = restTemplate.getForObject(url, String.class);
         if (xml == null || xml.isBlank()) return List.of();
         return parseStops(xml);
     }

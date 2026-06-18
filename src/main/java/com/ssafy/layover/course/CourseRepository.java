@@ -1,10 +1,5 @@
 package com.ssafy.layover.course;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-
-import java.util.List;
-
-public interface CourseRepository extends JpaRepository<Course, String> {
-    List<Course> findByUserIdOrderByCreatedAtDesc(String userId);
-    List<Course> findByIsPublicTrueOrderByCreatedAtDesc();
-}
+/** @deprecated CourseMapper (MyBatis) 로 대체됨 */
+@Deprecated
+final class CourseRepository {}

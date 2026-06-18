@@ -1,32 +1,27 @@
 package com.ssafy.layover.course;
 
 import com.ssafy.layover.bus.BusService;
-import com.ssafy.layover.course.dto.*;
 import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
-import com.ssafy.layover.place.PlaceRepository;
+import com.ssafy.layover.place.PlaceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class CourseService {
 
-    private final PlaceRepository placeRepository;
+    private final PlaceMapper placeMapper;
     private final BusService busService;
     private final TMapApiClient tMapApiClient;
 
-    // 코스 3개 생성 — DB에 저장하지 않고 DTO만 반환
-    // 확정하기 버튼 누를 때 저장 (추후 auth 연동 후 구현)
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
         List<Place> candidates = selectCandidates(req.getThemeTags());
         if (candidates.size() < 2) {
-            candidates = placeRepository.findByIsActiveTrueAndLatitudeIsNotNullAndLongitudeIsNotNull();
+            candidates = placeMapper.findAllWithLocation();
         }
 
         int placeCount = placeCountFor(req.getDurationMinutes());
@@ -42,9 +37,9 @@ public class CourseService {
 
     private List<Place> selectCandidates(List<String> themeTags) {
         if (themeTags == null || themeTags.isEmpty()) {
-            return placeRepository.findByIsActiveTrueAndLatitudeIsNotNullAndLongitudeIsNotNull();
+            return placeMapper.findAllWithLocation();
         }
-        return placeRepository.findByCategoryInAndIsActiveTrue(themeTags);
+        return placeMapper.findByCategoryIn(themeTags);
     }
 
     private int placeCountFor(int durationMinutes) {
@@ -92,24 +87,18 @@ public class CourseService {
         );
     }
 
-    // 두 장소 사이 이동시간·요금 계산
-    // 도보/택시 — T맵 실제 경로 기반 (실패 시 Haversine 폴백)
-    // 버스 — 대전 버스 API 정류소 기반 추정
     private TransportInfoResponse calcTransport(Place from, Place to) {
         double fLat = from.getLatitude().doubleValue(), fLng = from.getLongitude().doubleValue();
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
         double dist = haversine(fLat, fLng, tLat, tLng);
 
-        // 도보 — T맵, 실패 시 4km/h 직선거리 폴백
         int walkTmap = tMapApiClient.getWalkMinutes(fLat, fLng, tLat, tLng);
         int walkMin = walkTmap > 0 ? walkTmap : (int) Math.round(dist / 4.0 * 60);
 
-        // 자동차(택시) — T맵, 실패 시 30km/h 직선거리 폴백
         int[] carInfo = tMapApiClient.getCarRouteInfo(fLat, fLng, tLat, tLng);
         int taxiMin = carInfo[0] > 0 ? carInfo[0] : Math.max(3, (int) Math.round(dist / 30.0 * 60));
         int fare    = carInfo[1] > 0 ? carInfo[1] : 3800 + (int) (dist * 800);
 
-        // 버스 — 대전 버스 정류소 기반 추정
         int busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
 
         return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare);

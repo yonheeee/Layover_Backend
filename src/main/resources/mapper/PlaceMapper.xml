@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.place.PlaceMapper">
+
+    <resultMap id="PlaceResultMap" type="com.ssafy.layover.place.Place">
+        <id     column="id"                     property="id"/>
+        <result column="name"                   property="name"/>
+        <result column="category"               property="category"/>
+        <result column="original_category_code" property="originalCategoryCode"/>
+        <result column="address"                property="address"/>
+        <result column="latitude"               property="latitude"/>
+        <result column="longitude"              property="longitude"/>
+        <result column="tour_api_id"            property="tourApiId"/>
+        <result column="content_type_id"        property="contentTypeId"/>
+        <result column="operating_hours"        property="operatingHours"/>
+        <result column="image_url"              property="imageUrl"/>
+        <result column="is_active"              property="active"/>
+        <result column="deleted_at"             property="deletedAt"/>
+        <result column="synced_at"              property="syncedAt"/>
+    </resultMap>
+
+    <select id="findAllWithLocation" resultMap="PlaceResultMap">
+        SELECT * FROM places
+        WHERE is_active = 1
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+    </select>
+
+    <select id="findByCategoryIn" resultMap="PlaceResultMap">
+        SELECT * FROM places
+        WHERE is_active = 1
+          AND category IN
+          <foreach collection="categories" item="cat" open="(" separator="," close=")">
+              #{cat}
+          </foreach>
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+    </select>
+
+    <select id="searchByKeyword" resultMap="PlaceResultMap">
+        SELECT * FROM places
+        WHERE is_active = 1
+          AND latitude IS NOT NULL
+          <if test="keyword != null and keyword != ''">
+              AND name LIKE CONCAT('%', #{keyword}, '%')
+          </if>
+    </select>
+
+</mapper>
