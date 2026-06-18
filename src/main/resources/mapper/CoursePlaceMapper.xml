@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.course.CoursePlaceMapper">
+
+    <resultMap id="CoursePlaceResultMap" type="com.ssafy.layover.course.CoursePlace">
+        <id     column="id"              property="id"/>
+        <result column="course_id"       property="courseId"/>
+        <result column="place_id"        property="placeId"/>
+        <result column="order_index"     property="orderIndex"/>
+        <result column="travel_time_min" property="travelTimeMin"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.ssafy.layover.course.CoursePlace">
+        INSERT INTO course_places (id, course_id, place_id, order_index, travel_time_min)
+        VALUES (#{id}, #{courseId}, #{placeId}, #{orderIndex}, #{travelTimeMin})
+    </insert>
+
+    <select id="findByCourseId" resultMap="CoursePlaceResultMap">
+        SELECT * FROM course_places
+        WHERE course_id = #{courseId}
+        ORDER BY order_index ASC
+    </select>
+
+</mapper>
