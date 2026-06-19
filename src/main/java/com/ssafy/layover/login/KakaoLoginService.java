@@ -77,7 +77,7 @@ public class KakaoLoginService {
         return response.getBody();
     }
 
-    public LoginResponse processKakaoLogin(String code) {
+    public Map<String, Object> processKakaoLogin(String code) {
         String kakaoAccessToken = getKakaoToken(code);
         KakaoUserInfo userInfo = getKakaoUserInfo(kakaoAccessToken);
 
@@ -85,17 +85,28 @@ public class KakaoLoginService {
         String email = userInfo.getEmail() != null ? userInfo.getEmail() : kakaoId + "@kakao.com";
         String nickname = userInfo.getNickname() != null ? userInfo.getNickname() : "카카오유저";
 
+        boolean[] isNew = {false};
+        
         User user = userRepository.findByKakaoId(kakaoId).orElseGet(() -> {
-            User newUser = User.builder()
+        	isNew[0] = true;
+        	User newUser = User.builder()
                     .username(nickname)
                     .email(email)
                     .kakaoId(kakaoId)
                     .build();
             return userRepository.save(newUser);
         });
+        
+        // 기존 유저인데 프로필 미입력인 경우도 needsProfile=true
+        boolean needsProfile = isNew[0] || user.getRealName() == null;
 
         String accessToken = jwtUtil.generateAccessToken(user.getId());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
-        return new LoginResponse(accessToken, refreshToken);
+
+        return Map.of(
+                "accessToken", accessToken,
+                "refreshToken", refreshToken,
+                "needsProfile", needsProfile
+                );
     }
 }

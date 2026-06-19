@@ -3,13 +3,17 @@ package com.ssafy.layover.login;
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.login.dto.LoginRequest;
 import com.ssafy.layover.login.dto.LoginResponse;
+
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.view.RedirectView;
 
+import java.io.*;
 import java.net.URI;
+import java.util.*;
 
 @RestController
 @RequestMapping("/api/login")
@@ -30,11 +34,14 @@ public class LoginController {
     }
 
     @GetMapping("/kakao/callback")
-    public RedirectView kakaoCallback(@RequestParam String code) {
-        LoginResponse tokens = kakaoLoginService.processKakaoLogin(code);
-        String redirectUrl = "http://localhost:5173/login"
-                + "?accessToken=" + tokens.getAccessToken()
-                + "&refreshToken=" + tokens.getRefreshToken();
-        return new RedirectView(redirectUrl);
+    public void kakaoCallback(@RequestParam String code, HttpServletResponse response) throws IOException {
+        Map<String, Object> result = kakaoLoginService.processKakaoLogin(code);
+        String accessToken = (String) result.get("accessToken");
+        String refreshToken = (String) result.get("refreshToken");
+        boolean needsProfile = (boolean) result.get("needsProfile");
+
+        response.sendRedirect("http://localhost:5173/login?accessToken=" + accessToken
+                + "&refreshToken=" + refreshToken
+                + "&needsProfile=" + needsProfile);
     }
 }

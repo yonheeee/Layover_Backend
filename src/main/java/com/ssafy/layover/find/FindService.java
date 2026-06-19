@@ -36,6 +36,10 @@ public class FindService {
         if (user == null) {
             return ApiResponse.fail("일치하는 회원 정보를 찾을 수 없습니다.");
         }
+        
+        if (user.getKakaoId() != null) {
+            return ApiResponse.fail("카카오 계정으로 가입된 회원입니다. 카카오 로그인을 이용해 주세요.");
+        }
 
         String[] parts = user.getEmail().split("@");
         String maskedLocal = parts[0].substring(0, Math.min(3, parts[0].length())) + "***";
