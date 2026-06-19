@@ -36,13 +36,16 @@ public class PlaceService {
                 .stream()
                 .map(PlaceListResponse::from)
                 .toList();
-        int totalCount = placeMapper.countAll(category, keyword);
+        int totalElements = placeMapper.countAll(category, keyword);
+        int totalPages = (int) Math.ceil((double) totalElements / size);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("content", content);
-        result.put("totalCount", totalCount);
-        result.put("page", page);
+        result.put("totalElements", totalElements);
+        result.put("totalPages", totalPages);
+        result.put("currentPage", page);
         result.put("size", size);
+        result.put("hasNext", (page + 1) < totalPages);
         return result;
     }
 

@@ -1,5 +1,6 @@
 package com.ssafy.layover.place;
 
+import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.place.dto.PlaceDetailResponse;
 import com.ssafy.layover.place.dto.PlaceListResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,16 +29,16 @@ public class PlaceController {
     }
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> getPlaces(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPlaces(
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(placeService.getPlaces(category, keyword, page, size));
+            @RequestParam(defaultValue = "30") int size) {
+    	return ResponseEntity.ok(ApiResponse.success(placeService.getPlaces(category, keyword, page, size)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PlaceDetailResponse> getPlaceById(@PathVariable String id) {
-        return ResponseEntity.ok(placeService.getPlaceById(id));
+    public ResponseEntity<ApiResponse<PlaceDetailResponse>> getPlaceById(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.success(placeService.getPlaceById(id)));
     }
 }
