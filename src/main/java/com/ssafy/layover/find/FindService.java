@@ -48,6 +48,11 @@ public class FindService {
         if (!userRepository.existsByEmail(email)) {
             return ApiResponse.fail("등록되지 않은 이메일입니다.");
         }
+        
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user != null && user.getKakaoId() != null) {
+            return ApiResponse.fail("카카오 계정으로 가입된 회원입니다. 카카오 로그인을 이용해 주세요.");
+        }
 
         emailVerificationRepository.deleteByEmail(email);
 
