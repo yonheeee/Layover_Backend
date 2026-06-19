@@ -16,10 +16,18 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     boolean existsByEmail(String email);
 
+    Optional<User> findByKakaoId(String kakaoId);
+
     Optional<User> findByRealNameAndBirthDateAndPhone(String realName, LocalDate birthDate, String phone);
 
     @Transactional
     @Modifying
     @Query("UPDATE User u SET u.passwordHash = :passwordHash WHERE u.email = :email")
     void updatePasswordByEmail(@Param("email") String email, @Param("passwordHash") String passwordHash);
+
+    @Transactional
+    @Modifying
+    @Query("UPDATE User u SET u.realName = :name, u.birthDate = :birthDate, u.phone = :phone WHERE u.id = :userId")
+    void updateProfile(@Param("userId") String userId, @Param("name") String name,
+                       @Param("birthDate") LocalDate birthDate, @Param("phone") String phone);
 }
