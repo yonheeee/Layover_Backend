@@ -24,8 +24,10 @@ public class Place {
     private String operatingHours;
     private String imageUrl;
     private Boolean active;          // is_active 컬럼
+    private String description;
     private LocalDateTime deletedAt;
     private LocalDateTime syncedAt;
+    private LocalDateTime createdAt;
 
     public boolean isCurrentlyOpen() {
         int hour = LocalDateTime.now().getHour();
