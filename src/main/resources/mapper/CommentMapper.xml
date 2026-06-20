@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.community.comment.CommentMapper">
+
+    <resultMap id="CommentResultMap" type="com.ssafy.layover.community.comment.dto.CommentResponse">
+        <result column="id"         property="id"/>
+        <result column="user_id"    property="userId"/>
+        <result column="username"   property="username"/>
+        <result column="content"    property="content"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="findByPostId" resultMap="CommentResultMap">
+        SELECT c.id,
+               c.user_id,
+               u.username,
+               c.content,
+               c.created_at
+        FROM comments c
+        JOIN users u ON c.user_id = u.id
+        WHERE c.post_id = #{postId}
+          AND c.deleted_at IS NULL
+        ORDER BY c.created_at ASC
+    </select>
+
+    <select id="findOwnerById" resultType="string">
+        SELECT user_id
+        FROM comments
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+    </select>
+
+    <insert id="insert">
+        INSERT INTO comments (id, post_id, user_id, content)
+        VALUES (#{id}, #{postId}, #{userId}, #{content})
+    </insert>
+
+    <update id="softDelete">
+        UPDATE comments
+        SET deleted_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="incrementCommentCount">
+        UPDATE posts
+        SET comment_count = comment_count + 1
+        WHERE id = #{postId}
+    </update>
+
+    <update id="decrementCommentCount">
+        UPDATE posts
+        SET comment_count = GREATEST(comment_count - 1, 0)
+        WHERE id = #{postId}
+    </update>
+
+</mapper>
