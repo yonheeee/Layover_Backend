@@ -131,4 +131,13 @@
         WHERE id = #{id}
     </update>
 
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*)
+        FROM posts
+        WHERE deleted_at IS NULL
+        <if test="category != null">
+            AND category = #{category}
+        </if>
+    </select>
+
 </mapper>

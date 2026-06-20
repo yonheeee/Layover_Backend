@@ -10,7 +10,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -20,8 +22,18 @@ public class PostService {
     private final PostMapper postMapper;
     private final CommentMapper commentMapper;
 
-    public List<PostListResponse> getPosts(String category, int page, int size) {
-        return postMapper.findAll(category, page * size, size);
+    public Map<String, Object> getPosts(String category, int page, int size) {
+        int total = postMapper.countAll(category);
+        List<PostListResponse> content = postMapper.findAll(category, page * size, size);
+        int totalPages = (total == 0) ? 0 : (int) Math.ceil((double) total / size);
+        Map<String, Object> result = new HashMap<>();
+        result.put("content", content);
+        result.put("totalElements", total);
+        result.put("totalPages", totalPages);
+        result.put("currentPage", page);
+        result.put("size", size);
+        result.put("hasNext", page + 1 < totalPages);
+        return result;
     }
 
     @Transactional

@@ -40,4 +40,6 @@ public interface PostMapper {
     void incrementLikeCount(@Param("id") String id);
 
     void decrementLikeCount(@Param("id") String id);
+
+    int countAll(@Param("category") String category);
 }

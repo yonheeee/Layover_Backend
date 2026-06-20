@@ -3,14 +3,13 @@ package com.ssafy.layover.community.post;
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
-import com.ssafy.layover.community.post.dto.PostListResponse;
 import com.ssafy.layover.community.post.dto.PostUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -20,7 +19,7 @@ public class PostController {
     private final PostService postService;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<PostListResponse>>> getPosts(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPosts(
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
