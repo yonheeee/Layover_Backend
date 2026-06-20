@@ -100,7 +100,7 @@ public class KakaoLoginService {
         // 기존 유저인데 프로필 미입력인 경우도 needsProfile=true
         boolean needsProfile = isNew[0] || user.getRealName() == null;
 
-        String accessToken = jwtUtil.generateAccessToken(user.getId());
+        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getRole());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
 
         return Map.of(

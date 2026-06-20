@@ -27,7 +27,7 @@ public class LoginService {
             return ApiResponse.fail("탈퇴한 회원입니다.");
         }
 
-        String accessToken = jwtUtil.generateAccessToken(user.getId());
+        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getRole());
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
         return ApiResponse.success(new LoginResponse(accessToken, refreshToken));
     }
