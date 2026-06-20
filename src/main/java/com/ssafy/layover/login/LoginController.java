@@ -16,8 +16,8 @@ import java.net.URI;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/login")
 @RequiredArgsConstructor
+@RequestMapping("/api/login")
 public class LoginController {
 
     private final LoginService loginService;
