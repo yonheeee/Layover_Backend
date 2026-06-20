@@ -1,7 +1,9 @@
 package com.ssafy.layover.course;
 
+import com.ssafy.layover.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -17,5 +19,19 @@ public class CourseController {
     public ResponseEntity<List<CourseResponse>> generateCourses(
             @RequestBody CourseGenerateRequest req) {
         return ResponseEntity.ok(courseService.generateCourses(req));
+    }
+
+    @PostMapping("/save")
+    public ResponseEntity<ApiResponse<String>> saveCourse(
+            @AuthenticationPrincipal String userId,
+            @RequestBody SaveCourseRequest req) {
+        String courseId = courseService.saveCourse(userId, req);
+        return ResponseEntity.ok(ApiResponse.success("코스가 저장되었습니다.", courseId));
+    }
+
+    @GetMapping("/my")
+    public ResponseEntity<ApiResponse<List<SavedCourseResponse>>> getMyCourses(
+            @AuthenticationPrincipal String userId) {
+        return ResponseEntity.ok(ApiResponse.success(courseService.getMyCourses(userId)));
     }
 }

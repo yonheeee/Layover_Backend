@@ -6,6 +6,7 @@ import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -15,8 +16,42 @@ import java.util.stream.Collectors;
 public class CourseService {
 
     private final PlaceMapper placeMapper;
+    private final CourseMapper courseMapper;
+    private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
     private final TMapApiClient tMapApiClient;
+    @Transactional
+    public String saveCourse(String userId, SaveCourseRequest req) {
+        String themeTagsJson = null;
+        if (req.getThemeTags() != null && !req.getThemeTags().isEmpty()) {
+            themeTagsJson = "[\"" + String.join("\",\"", req.getThemeTags()) + "\"]";
+        }
+
+        Course course = Course.create(userId, req.getDepartureStation(), req.getDurationMinutes(),
+                req.getTravelMode(), req.getWeatherCondition(), themeTagsJson);
+        courseMapper.insert(course);
+
+        if (req.getPlaces() != null) {
+            for (SaveCourseRequest.PlaceItem item : req.getPlaces()) {
+                CoursePlace cp = CoursePlace.of(course.getId(), item.getPlaceId(),
+                        item.getOrderIndex(), item.getTravelTimeMin());
+                coursePlaceMapper.insert(cp);
+            }
+        }
+        return course.getId();
+    }
+
+    public List<SavedCourseResponse> getMyCourses(String userId) {
+        List<Course> courses = courseMapper.findByUserId(userId);
+        return courses.stream().map(course -> {
+            List<CoursePlace> coursePlaces = coursePlaceMapper.findByCourseId(course.getId());
+            List<Place> places = coursePlaces.stream()
+                    .map(cp -> placeMapper.findById(cp.getPlaceId()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            return SavedCourseResponse.from(course, places);
+        }).collect(Collectors.toList());
+    }
 
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
         List<Place> candidates = selectCandidates(req.getThemeTags());
