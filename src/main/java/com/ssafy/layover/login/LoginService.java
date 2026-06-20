@@ -31,4 +31,5 @@ public class LoginService {
         String refreshToken = jwtUtil.generateRefreshToken(user.getId());
         return ApiResponse.success(new LoginResponse(accessToken, refreshToken));
     }
+
 }
