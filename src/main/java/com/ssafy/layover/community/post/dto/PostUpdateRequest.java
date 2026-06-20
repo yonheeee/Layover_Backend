@@ -8,4 +8,5 @@ import lombok.NoArgsConstructor;
 public class PostUpdateRequest {
     private String title;
     private String content;
+    private String category;
 }

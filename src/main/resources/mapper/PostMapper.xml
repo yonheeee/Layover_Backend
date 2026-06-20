@@ -81,8 +81,9 @@
 
     <update id="update">
         UPDATE posts
-        SET title   = #{req.title},
-            content = #{req.content}
+        SET title    = #{req.title},
+            content  = #{req.content},
+            category = #{req.category}
         WHERE id = #{id}
           AND deleted_at IS NULL
     </update>

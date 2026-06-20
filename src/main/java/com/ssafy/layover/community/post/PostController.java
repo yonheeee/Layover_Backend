@@ -36,7 +36,7 @@ public class PostController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<Void>> createPost(
+    public ResponseEntity<ApiResponse<PostDetailResponse>> createPost(
             @AuthenticationPrincipal String userId,
             @RequestBody PostCreateRequest req) {
         return ResponseEntity.ok(postService.createPost(userId, req));

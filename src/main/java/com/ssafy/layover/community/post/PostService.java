@@ -46,9 +46,15 @@ public class PostService {
         return post;
     }
 
-    public ApiResponse<Void> createPost(String userId, PostCreateRequest req) {
-        postMapper.insert(UUID.randomUUID().toString(), userId, req);
-        return ApiResponse.success("게시글이 등록되었습니다.", null);
+    @Transactional
+    public ApiResponse<PostDetailResponse> createPost(String userId, PostCreateRequest req) {
+        String id = UUID.randomUUID().toString();
+        postMapper.insert(id, userId, req);
+        PostDetailResponse post = postMapper.findById(id);
+        if (post != null) {
+            post.setComments(commentMapper.findByPostId(id));
+        }
+        return ApiResponse.success("게시글이 등록되었습니다.", post);
     }
 
     public ApiResponse<Void> updatePost(String id, String userId, PostUpdateRequest req) {
