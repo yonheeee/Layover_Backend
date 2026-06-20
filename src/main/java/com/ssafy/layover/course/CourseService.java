@@ -4,7 +4,6 @@ import com.ssafy.layover.bus.BusService;
 import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,17 +20,11 @@ public class CourseService {
     private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
     private final TMapApiClient tMapApiClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Transactional
     public String saveCourse(String userId, SaveCourseRequest req) {
         String themeTagsJson = null;
         if (req.getThemeTags() != null && !req.getThemeTags().isEmpty()) {
-            try {
-                themeTagsJson = objectMapper.writeValueAsString(req.getThemeTags());
-            } catch (Exception e) {
-                themeTagsJson = "[]";
-            }
+            themeTagsJson = "[\"" + String.join("\",\"", req.getThemeTags()) + "\"]";
         }
 
         Course course = Course.create(userId, req.getDepartureStation(), req.getDurationMinutes(),
