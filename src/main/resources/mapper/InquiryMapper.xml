@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.inquiry.InquiryMapper">
+
+    <resultMap id="InquiryListResultMap" type="com.ssafy.layover.inquiry.dto.InquiryListResponse">
+        <result column="id"         property="id"/>
+        <result column="title"      property="title"/>
+        <result column="status"     property="status"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <resultMap id="InquiryDetailResultMap" type="com.ssafy.layover.inquiry.dto.InquiryDetailResponse">
+        <result column="id"          property="id"/>
+        <result column="title"       property="title"/>
+        <result column="content"     property="content"/>
+        <result column="status"      property="status"/>
+        <result column="answer"      property="answer"/>
+        <result column="created_at"  property="createdAt"/>
+        <result column="answered_at" property="answeredAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO inquiries (id, user_id, title, content)
+        VALUES (#{id}, #{userId}, #{title}, #{content})
+    </insert>
+
+    <select id="findByUserId" resultMap="InquiryListResultMap">
+        SELECT id, title, status, created_at
+        FROM inquiries
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findByIdAndUserId" resultMap="InquiryDetailResultMap">
+        SELECT id, title, content, status, answer, created_at, answered_at
+        FROM inquiries
+        WHERE id = #{id}
+          AND user_id = #{userId}
+    </select>
+
+</mapper>
