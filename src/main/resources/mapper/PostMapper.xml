@@ -141,4 +141,22 @@
         </if>
     </select>
 
+    <resultMap id="MyPostResultMap" type="com.ssafy.layover.community.post.dto.MyPostResponse">
+        <result column="id"            property="id"/>
+        <result column="title"         property="title"/>
+        <result column="category"      property="category"/>
+        <result column="view_count"    property="viewCount"/>
+        <result column="like_count"    property="likeCount"/>
+        <result column="comment_count" property="commentCount"/>
+        <result column="created_at"    property="createdAt"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="MyPostResultMap">
+        SELECT id, title, category, view_count, like_count, comment_count, created_at
+        FROM posts
+        WHERE user_id = #{userId}
+          AND deleted_at IS NULL
+        ORDER BY created_at DESC
+    </select>
+
 </mapper>

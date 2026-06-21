@@ -1,6 +1,7 @@
 package com.ssafy.layover.community.post;
 
 import com.ssafy.layover.common.dto.ApiResponse;
+import com.ssafy.layover.community.post.dto.MyPostResponse;
 import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
 import com.ssafy.layover.community.post.dto.PostUpdateRequest;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -17,6 +19,12 @@ import java.util.Map;
 public class PostController {
 
     private final PostService postService;
+
+    @GetMapping("/my")
+    public ResponseEntity<ApiResponse<List<MyPostResponse>>> getMyPosts(
+            @AuthenticationPrincipal String userId) {
+        return ResponseEntity.ok(ApiResponse.success(postService.getMyPosts(userId)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPosts(
