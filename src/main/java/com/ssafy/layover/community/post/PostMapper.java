@@ -1,5 +1,6 @@
 package com.ssafy.layover.community.post;
 
+import com.ssafy.layover.community.post.dto.MyPostResponse;
 import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
 import com.ssafy.layover.community.post.dto.PostListResponse;
@@ -42,4 +43,6 @@ public interface PostMapper {
     void decrementLikeCount(@Param("id") String id);
 
     int countAll(@Param("category") String category);
+
+    List<MyPostResponse> findByUserId(@Param("userId") String userId);
 }

@@ -2,6 +2,7 @@ package com.ssafy.layover.community.post;
 
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.community.comment.CommentMapper;
+import com.ssafy.layover.community.post.dto.MyPostResponse;
 import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
 import com.ssafy.layover.community.post.dto.PostListResponse;
@@ -97,5 +98,9 @@ public class PostService {
     public boolean getLikeStatus(String postId, String userId) {
         if (userId == null) return false;
         return postMapper.existsLike(postId, userId);
+    }
+
+    public List<MyPostResponse> getMyPosts(String userId) {
+        return postMapper.findByUserId(userId);
     }
 }
