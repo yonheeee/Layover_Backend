@@ -28,8 +28,12 @@ public class MeController {
     public ResponseEntity<ApiResponse<Void>> updateNickname(
             @AuthenticationPrincipal String userId,
             @Valid @RequestBody UpdateNicknameRequest req) {
-        meService.updateNickname(userId, req.getUsername());
-        return ResponseEntity.ok(ApiResponse.success("닉네임이 변경되었습니다.", null));
+        try {
+            meService.updateNickname(userId, req.getUsername());
+            return ResponseEntity.ok(ApiResponse.success("닉네임이 변경되었습니다.", null));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
+        }
     }
 
     @PutMapping("/phone")

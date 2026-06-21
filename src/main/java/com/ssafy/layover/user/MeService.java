@@ -21,6 +21,9 @@ public class MeService {
     }
 
     public void updateNickname(String userId, String username) {
+        if (userRepository.existsByUsername(username)) {
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+        }
         userRepository.updateUsername(userId, username);
     }
 
