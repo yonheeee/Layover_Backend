@@ -6,8 +6,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
@@ -59,8 +57,7 @@ public class BusApiClient {
     }
 
     private List<BusStop> fetchPage(int page) throws Exception {
-        String encodedKey = URLEncoder.encode(serviceKey, StandardCharsets.UTF_8);
-        String url = BASE_URL + "?serviceKey=" + encodedKey + "&reqPage=" + page;
+        String url = BASE_URL + "?serviceKey=" + serviceKey + "&reqPage=" + page;
         log.info("버스 API 요청 URL: {}", url);
         String xml = restTemplate.getForObject(url, String.class);
         if (xml == null || xml.isBlank()) return List.of();

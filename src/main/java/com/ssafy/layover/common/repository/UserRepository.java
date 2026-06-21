@@ -45,4 +45,12 @@ public interface UserRepository extends JpaRepository<User, String> {
     @Modifying
     @Query("UPDATE User u SET u.passwordHash = :passwordHash WHERE u.id = :userId")
     void updatePassword(@Param("userId") String userId, @Param("passwordHash") String passwordHash);
+
+    @Transactional
+    @Modifying
+    @Query("UPDATE User u SET u.stampCount = u.stampCount + 1 WHERE u.id = :userId")
+    void incrementStampCount(@Param("userId") String userId);
+
+    @Query("SELECT u.stampCount FROM User u WHERE u.id = :userId")
+    int getStampCount(@Param("userId") String userId);
 }

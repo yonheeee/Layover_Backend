@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.character.CharacterMapper">
+
+    <resultMap id="CharacterResultMap" type="com.ssafy.layover.character.Character">
+        <id     column="id"              property="id"/>
+        <result column="name"            property="name"/>
+        <result column="image_url"       property="imageUrl"/>
+        <result column="required_stamps" property="requiredStamps"/>
+        <result column="description"     property="description"/>
+    </resultMap>
+
+    <select id="findAll" resultMap="CharacterResultMap">
+        SELECT * FROM characters ORDER BY required_stamps ASC
+    </select>
+
+    <select id="findByUserId" resultMap="CharacterResultMap">
+        SELECT c.*
+        FROM characters c
+        JOIN user_characters uc ON c.id = uc.character_id
+        WHERE uc.user_id = #{userId}
+        ORDER BY uc.obtained_at ASC
+    </select>
+
+    <select id="findByRequiredStamps" resultMap="CharacterResultMap">
+        SELECT * FROM characters WHERE required_stamps = #{count} LIMIT 1
+    </select>
+
+    <insert id="insertUserCharacter" parameterType="com.ssafy.layover.character.UserCharacter">
+        INSERT INTO user_characters (id, user_id, character_id, obtained_at)
+        VALUES (#{id}, #{userId}, #{characterId}, #{obtainedAt})
+    </insert>
+
+    <select id="existsUserCharacter" resultType="boolean">
+        SELECT COUNT(*) > 0
+        FROM user_characters
+        WHERE user_id = #{userId} AND character_id = #{characterId}
+    </select>
+
+</mapper>
