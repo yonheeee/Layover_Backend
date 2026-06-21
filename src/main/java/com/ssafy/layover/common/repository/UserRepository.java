@@ -53,4 +53,6 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     @Query("SELECT u.stampCount FROM User u WHERE u.id = :userId")
     int getStampCount(@Param("userId") String userId);
+    
+    boolean existsByUsername(String username);
 }
