@@ -1,10 +1,9 @@
 package com.ssafy.layover.signup;
 
 import com.ssafy.layover.common.dto.ApiResponse;
-import com.ssafy.layover.common.entity.EmailVerification;
 import com.ssafy.layover.common.entity.User;
-import com.ssafy.layover.common.repository.EmailVerificationRepository;
 import com.ssafy.layover.common.repository.UserRepository;
+import com.ssafy.layover.common.service.EmailVerificationService;
 import com.ssafy.layover.signup.dto.SignupRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.mail.SimpleMailMessage;
@@ -13,7 +12,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.Random;
 
 @Service
@@ -22,7 +20,7 @@ import java.util.Random;
 public class SignupService {
 
     private final UserRepository userRepository;
-    private final EmailVerificationRepository emailVerificationRepository;
+    private final EmailVerificationService emailVerificationService;
     private final JavaMailSender mailSender;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
 
@@ -34,16 +32,8 @@ public class SignupService {
     }
 
     public ApiResponse<?> sendEmailCode(String email) {
-        emailVerificationRepository.deleteByEmail(email);
-
         String code = String.format("%06d", new Random().nextInt(900000) + 100000);
-        EmailVerification verification = EmailVerification.builder()
-                .email(email)
-                .code(code)
-                .expiresAt(LocalDateTime.now().plusMinutes(5))
-                .verified(false)
-                .build();
-        emailVerificationRepository.save(verification);
+        emailVerificationService.saveCode(email, code);
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(email);
@@ -55,30 +45,16 @@ public class SignupService {
     }
 
     public ApiResponse<?> verifyEmailCode(String email, String code) {
-        EmailVerification verification = emailVerificationRepository
-                .findTopByEmailOrderByCreatedAtDesc(email)
-                .orElse(null);
-
-        if (verification == null) {
-            return ApiResponse.fail("인증 코드를 먼저 발송해 주세요.");
-        }
-        if (verification.getExpiresAt().isBefore(LocalDateTime.now())) {
-            return ApiResponse.fail("인증 코드가 만료되었습니다.");
-        }
-        if (!verification.getCode().equals(code)) {
-            return ApiResponse.fail("인증 코드가 일치하지 않습니다.");
-        }
-
-        emailVerificationRepository.updateVerifiedByEmail(email);
-        return ApiResponse.success("이메일 인증이 완료되었습니다.", null);
+        String result = emailVerificationService.verifyCode(email, code);
+        return switch (result) {
+            case "EXPIRED" -> ApiResponse.fail("인증 코드가 만료되었습니다.");
+            case "INVALID" -> ApiResponse.fail("인증 코드가 일치하지 않습니다.");
+            default -> ApiResponse.success("이메일 인증이 완료되었습니다.", null);
+        };
     }
 
     public ApiResponse<?> signup(SignupRequest request) {
-        EmailVerification verification = emailVerificationRepository
-                .findTopByEmailOrderByCreatedAtDesc(request.getEmail())
-                .orElse(null);
-
-        if (verification == null || !verification.isVerified()) {
+        if (!emailVerificationService.isVerified(request.getEmail())) {
             return ApiResponse.fail("이메일 인증이 완료되지 않았습니다.");
         }
 
@@ -91,8 +67,10 @@ public class SignupService {
                 .passwordHash(bCryptPasswordEncoder.encode(request.getPassword()))
                 .build();
         userRepository.save(user);
-        emailVerificationRepository.deleteByEmail(request.getEmail());
+        emailVerificationService.deleteVerification(request.getEmail());
 
+        // email_verifications 테이블은 JPA 자동 삭제 안됨. DB에서 수동 실행 필요:
+        // DROP TABLE email_verifications;
         return ApiResponse.success("회원가입이 완료되었습니다.", null);
     }
 }
