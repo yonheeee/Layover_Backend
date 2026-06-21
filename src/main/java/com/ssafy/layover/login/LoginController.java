@@ -35,13 +35,17 @@ public class LoginController {
 
     @GetMapping("/kakao/callback")
     public void kakaoCallback(@RequestParam String code, HttpServletResponse response) throws IOException {
-        Map<String, Object> result = kakaoLoginService.processKakaoLogin(code);
-        String accessToken = (String) result.get("accessToken");
-        String refreshToken = (String) result.get("refreshToken");
-        boolean needsProfile = (boolean) result.get("needsProfile");
+        try {
+            Map<String, Object> result = kakaoLoginService.processKakaoLogin(code);
+            String accessToken = (String) result.get("accessToken");
+            String refreshToken = (String) result.get("refreshToken");
+            boolean needsProfile = (boolean) result.get("needsProfile");
 
-        response.sendRedirect("http://localhost:5173/login?accessToken=" + accessToken
-                + "&refreshToken=" + refreshToken
-                + "&needsProfile=" + needsProfile);
+            response.sendRedirect("http://localhost:5173/login?accessToken=" + accessToken
+                    + "&refreshToken=" + refreshToken
+                    + "&needsProfile=" + needsProfile);
+        } catch (RuntimeException e) {
+            response.sendRedirect("http://localhost:5173/login?error=withdrawn");
+        }
     }
 }

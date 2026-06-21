@@ -51,4 +51,15 @@ public class MeController {
         meService.updatePassword(userId, req.getCurrentPassword(), req.getNewPassword());
         return ResponseEntity.ok(ApiResponse.success("비밀번호가 변경되었습니다.", null));
     }
+
+    @DeleteMapping
+    public ResponseEntity<ApiResponse<Void>> withdraw(
+            @AuthenticationPrincipal String userId) {
+        try {
+            meService.withdraw(userId);
+            return ResponseEntity.ok(ApiResponse.success("회원탈퇴가 완료되었습니다.", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail(e.getMessage()));
+        }
+    }
 }
