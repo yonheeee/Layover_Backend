@@ -1,5 +1,6 @@
 package com.ssafy.layover.course;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.ssafy.layover.place.Place;
 import lombok.Getter;
 
@@ -9,8 +10,10 @@ public class CourseStopResponse {
     private final String id;
     private final String name;
     private final String category;
+    @JsonProperty("isOpen")
     private final boolean isOpen;
     private final String stayTime;
+    @JsonProperty("isLocked")
     private final boolean isLocked;
     private final double lat;
     private final double lng;
