@@ -1,39 +1,67 @@
 package com.ssafy.layover.train;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
-import java.net.URI;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class KorailApiClient {
 
     private static final String BASE_URL =
-            "https://openapis.korail.com/samples/public/call/run/travelerTrainRunPlan";
+            "https://openapis.korail.com/samples/public/call/run/travelerTrainRunInfo";
 
-    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public List<TrainResponse> fetchTrains(String stnCd, String date) {
+    public List<TrainResponse> fetchTrains(String stnNm, String date) {
         try {
-            URI uri = UriComponentsBuilder.fromUriString(BASE_URL)
-                    .queryParam("cond[dptre_stn_cd::EQ]", stnCd)
-                    .queryParam("cond[run_ymd::EQ]", date)
-                    .queryParam("pageNo", 1)
-                    .queryParam("numOfRows", 100)
-                    .build()
-                    .encode()
-                    .toUri();
+            String url = BASE_URL
+                    + "?cond%5Brun_ymd%3A%3AGTE%5D=20260101"
+                    + "&cond%5Brun_ymd%3A%3ALTE%5D=20261231"
+                    + "&cond%5Bstn_nm%3A%3AEQ%5D=" + URLEncoder.encode(stnNm, StandardCharsets.UTF_8)
+                    + "&numOfRows=100"
+                    + "&pageNo=1";
 
-            log.info("코레일 API 요청: {}", uri);
+            log.info("코레일 API 요청: {}", url);
 
-            KorailRoot root = restTemplate.getForObject(uri, KorailRoot.class);
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "application/json");
+
+            int status = conn.getResponseCode();
+            log.info("코레일 API 응답 코드: {}", status);
+
+            if (status == 302) {
+                String location = conn.getHeaderField("Location");
+                log.info("코레일 API 리다이렉트 → {}", location);
+                conn.disconnect();
+
+                conn = (HttpURLConnection) new URL(location).openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Accept", "application/json");
+
+                status = conn.getResponseCode();
+                log.info("리다이렉트 후 응답 코드: {}", status);
+            }
+
+            if (status != 200) {
+                log.error("코레일 API 실패 응답 코드: {}", status);
+                return List.of();
+            }
+
+            String body = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            log.info("코레일 API 응답 바디 (앞 200자): {}", body.substring(0, Math.min(200, body.length())));
+
+            KorailRoot root = objectMapper.readValue(body, KorailRoot.class);
 
             if (root == null
                     || root.response() == null
@@ -46,11 +74,11 @@ public class KorailApiClient {
             return root.response().body().items().item().stream()
                     .map(item -> new TrainResponse(
                             item.trn_no(),
-                            toHhmm(item.trn_plan_dptre_dt()),
-                            toHhmm(item.trn_plan_arvl_dt()),
+                            toHhmm(item.trn_dptre_dt()),
+                            toHhmm(item.trn_arvl_dt()),
                             item.arvl_stn_nm(),
                             item.dptre_stn_nm(),
-                            item.dptre_stn_cd()
+                            item.stn_nm()
                     ))
                     .toList();
 
@@ -60,14 +88,11 @@ public class KorailApiClient {
         }
     }
 
-    // "2026-06-22 05:55:00.0" → "05:55"
     private String toHhmm(String datetime) {
         if (datetime == null || !datetime.contains(" ")) return "";
         String timePart = datetime.split(" ")[1];
         return timePart.length() >= 5 ? timePart.substring(0, 5) : timePart;
     }
-
-    // ── JSON 역직렬화용 내부 레코드 ──────────────────────────────────
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record KorailRoot(KorailResponse response) {}
@@ -85,9 +110,9 @@ public class KorailApiClient {
     private record KorailItem(
             String arvl_stn_nm,
             String dptre_stn_nm,
-            String dptre_stn_cd,
+            String stn_nm,
             String trn_no,
-            String trn_plan_dptre_dt,
-            String trn_plan_arvl_dt
+            String trn_dptre_dt,
+            String trn_arvl_dt
     ) {}
 }

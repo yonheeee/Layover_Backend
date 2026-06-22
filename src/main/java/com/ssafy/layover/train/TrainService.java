@@ -13,8 +13,8 @@ public class TrainService {
     private final KorailApiClient korailApiClient;
 
     private static final Map<String, String> STATION_CODES = Map.of(
-            "daejeon", "3900073",
-            "seo-daejeon", "3900195"
+            "daejeon", "대전",
+            "seo-daejeon", "서대전"
     );
 
     public List<TrainResponse> getTrains(String station, String date) {
