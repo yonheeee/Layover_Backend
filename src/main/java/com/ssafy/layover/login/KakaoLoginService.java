@@ -32,6 +32,9 @@ public class KakaoLoginService {
     @Value("${kakao.client-secret}")
     private String clientSecret;
 
+    @Value("${kakao.admin-key}")
+    private String adminKey;
+
     public String getKakaoAuthUrl() {
         return "https://kauth.kakao.com/oauth/authorize"
                 + "?response_type=code"
@@ -86,7 +89,13 @@ public class KakaoLoginService {
         String nickname = userInfo.getNickname() != null ? userInfo.getNickname() : "카카오유저";
 
         boolean[] isNew = {false};
-        
+
+        userRepository.findByKakaoId(kakaoId).ifPresent(existing -> {
+            if (existing.getDeletedAt() != null) {
+                throw new RuntimeException("탈퇴한 회원입니다.");
+            }
+        });
+
         User user = userRepository.findByKakaoId(kakaoId).orElseGet(() -> {
         	isNew[0] = true;
         	User newUser = User.builder()
@@ -108,5 +117,23 @@ public class KakaoLoginService {
                 "refreshToken", refreshToken,
                 "needsProfile", needsProfile
                 );
+    }
+
+    public void unlinkKakao(String kakaoId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "KakaoAK " + adminKey);
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("target_id_type", "user_id");
+        params.add("target_id", kakaoId);
+
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+        restTemplate.postForEntity(
+                "https://kapi.kakao.com/v1/user/unlink",
+                request,
+                Map.class
+        );
     }
 }

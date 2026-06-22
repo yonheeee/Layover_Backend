@@ -1,10 +1,9 @@
 package com.ssafy.layover.find;
 
 import com.ssafy.layover.common.dto.ApiResponse;
-import com.ssafy.layover.common.entity.EmailVerification;
 import com.ssafy.layover.common.entity.User;
-import com.ssafy.layover.common.repository.EmailVerificationRepository;
 import com.ssafy.layover.common.repository.UserRepository;
+import com.ssafy.layover.common.service.EmailVerificationService;
 import com.ssafy.layover.find.dto.FindIdRequest;
 import com.ssafy.layover.find.dto.FindIdResponse;
 import com.ssafy.layover.find.dto.FindPwResetRequest;
@@ -15,7 +14,6 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.Random;
 
 @Service
@@ -24,7 +22,7 @@ import java.util.Random;
 public class FindService {
 
     private final UserRepository userRepository;
-    private final EmailVerificationRepository emailVerificationRepository;
+    private final EmailVerificationService emailVerificationService;
     private final JavaMailSender mailSender;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
 
@@ -36,7 +34,7 @@ public class FindService {
         if (user == null) {
             return ApiResponse.fail("일치하는 회원 정보를 찾을 수 없습니다.");
         }
-        
+
         if (user.getKakaoId() != null) {
             return ApiResponse.fail("카카오 계정으로 가입된 회원입니다. 카카오 로그인을 이용해 주세요.");
         }
@@ -52,22 +50,14 @@ public class FindService {
         if (!userRepository.existsByEmail(email)) {
             return ApiResponse.fail("등록되지 않은 이메일입니다.");
         }
-        
+
         User user = userRepository.findByEmail(email).orElse(null);
         if (user != null && user.getKakaoId() != null) {
             return ApiResponse.fail("카카오 계정으로 가입된 회원입니다. 카카오 로그인을 이용해 주세요.");
         }
 
-        emailVerificationRepository.deleteByEmail(email);
-
         String code = String.format("%06d", new Random().nextInt(900000) + 100000);
-        EmailVerification verification = EmailVerification.builder()
-                .email(email)
-                .code(code)
-                .expiresAt(LocalDateTime.now().plusMinutes(5))
-                .verified(false)
-                .build();
-        emailVerificationRepository.save(verification);
+        emailVerificationService.saveCode(email, code);
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(email);
@@ -79,30 +69,16 @@ public class FindService {
     }
 
     public ApiResponse<?> verifyPasswordResetCode(String email, String code) {
-        EmailVerification verification = emailVerificationRepository
-                .findTopByEmailOrderByCreatedAtDesc(email)
-                .orElse(null);
-
-        if (verification == null) {
-            return ApiResponse.fail("인증 코드를 먼저 발송해 주세요.");
-        }
-        if (verification.getExpiresAt().isBefore(LocalDateTime.now())) {
-            return ApiResponse.fail("인증 코드가 만료되었습니다.");
-        }
-        if (!verification.getCode().equals(code)) {
-            return ApiResponse.fail("인증 코드가 일치하지 않습니다.");
-        }
-
-        emailVerificationRepository.updateVerifiedByEmail(email);
-        return ApiResponse.success("이메일 인증이 완료되었습니다.", null);
+        String result = emailVerificationService.verifyCode(email, code);
+        return switch (result) {
+            case "EXPIRED" -> ApiResponse.fail("인증 코드가 만료되었습니다.");
+            case "INVALID" -> ApiResponse.fail("인증 코드가 일치하지 않습니다.");
+            default -> ApiResponse.success("이메일 인증이 완료되었습니다.", null);
+        };
     }
 
     public ApiResponse<?> resetPassword(FindPwResetRequest request) {
-        EmailVerification verification = emailVerificationRepository
-                .findTopByEmailOrderByCreatedAtDesc(request.getEmail())
-                .orElse(null);
-
-        if (verification == null || !verification.isVerified()) {
+        if (!emailVerificationService.isVerified(request.getEmail())) {
             return ApiResponse.fail("이메일 인증이 완료되지 않았습니다.");
         }
 
@@ -110,7 +86,7 @@ public class FindService {
                 request.getEmail(),
                 bCryptPasswordEncoder.encode(request.getNewPassword())
         );
-        emailVerificationRepository.deleteByEmail(request.getEmail());
+        emailVerificationService.deleteVerification(request.getEmail());
 
         return ApiResponse.success("비밀번호가 변경되었습니다.", null);
     }
