@@ -2,16 +2,18 @@ package com.ssafy.layover.bookmark;
 
 import com.ssafy.layover.bookmark.dto.BookmarkResponse;
 import com.ssafy.layover.common.dto.ApiResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 public class BookmarkService {
 
     private final BookmarkMapper bookmarkMapper;
+
+    public BookmarkService(BookmarkMapper bookmarkMapper) {
+        this.bookmarkMapper = bookmarkMapper;
+    }
 
     public ApiResponse<Void> addBookmark(String userId, String placeId) {
         if (bookmarkMapper.existsByUserIdAndPlaceId(userId, placeId)) {
