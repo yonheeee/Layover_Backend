@@ -32,26 +32,27 @@
 		<result column="updated_at" property="updatedAt" />
 	</resultMap>
 
-	<select id="findAll" resultMap="PostListResultMap">
-		SELECT p.id,
-		p.user_id,
-		u.username,
-		p.category,
-		p.title,
-		p.view_count,
-		p.like_count,
-		p.comment_count,
-		p.created_at,
-		NULL AS thumbnail_url
-		FROM posts p
-		JOIN users u ON p.user_id = u.id
-		WHERE p.deleted_at IS NULL
-		<if test="category != null">
-			AND p.category = #{category}
-		</if>
-		ORDER BY p.created_at DESC
-		LIMIT #{size} OFFSET #{offset}
-	</select>
+	<!-- MySQL 버전 문제 : REGEXP_SUBSTR(p.content, 'src="([^"]+)"', 1, 1, '', 1) AS thumbnail_url -->
+    <select id="findAll" resultMap="PostListResultMap">
+        SELECT p.id,
+               p.user_id,
+               u.username,
+               p.category,
+               p.title,
+               p.view_count,
+               p.like_count,
+               p.comment_count,
+               p.created_at,
+               NULL AS thumbnail_url
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.deleted_at IS NULL
+        <if test="category != null">
+            AND p.category = #{category}
+        </if>
+        ORDER BY p.created_at DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
 
 	<select id="findById" resultMap="PostDetailResultMap">
 		SELECT p.id,
