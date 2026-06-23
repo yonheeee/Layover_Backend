@@ -36,4 +36,13 @@
         ORDER BY created_at DESC
     </select>
 
+    <select id="findByIdAndUserId" resultMap="CourseResultMap">
+        SELECT * FROM courses
+        WHERE id = #{courseId} AND user_id = #{userId}
+    </select>
+
+    <delete id="deleteById">
+        DELETE FROM courses WHERE id = #{courseId}
+    </delete>
+
 </mapper>

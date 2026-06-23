@@ -61,6 +61,16 @@ public class CourseService {
         }).collect(Collectors.toList());
     }
 
+    @Transactional
+    public void deleteCourse(String userId, String courseId) {
+        Course course = courseMapper.findByIdAndUserId(courseId, userId);
+        if (course == null) {
+            throw new IllegalArgumentException("코스를 찾을 수 없거나 권한이 없습니다.");
+        }
+        coursePlaceMapper.deleteByCourseId(courseId);
+        courseMapper.deleteById(courseId);
+    }
+
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
         List<Place> candidates = selectCandidates(req.getThemeTags());
         if (candidates.size() < 2) {
