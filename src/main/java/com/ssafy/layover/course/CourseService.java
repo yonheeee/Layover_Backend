@@ -7,11 +7,16 @@ import com.ssafy.layover.place.PlaceMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class CourseService {
+
+    private static final int RECOMMENDED_COURSE_COUNT = 3;
+    private static final int FALLBACK_PICK_ATTEMPTS = 80;
+    private static final String[] FALLBACK_TITLES = {"빠른 코스", "여유 코스", "딱 맞는 코스"};
 
     private final PlaceMapper placeMapper;
     private final CourseMapper courseMapper;
@@ -80,22 +85,36 @@ public class CourseService {
             candidates = placeMapper.findAllWithLocation();
         }
 
+        int durationMinutes = normalizedDuration(req.getDurationMinutes());
         int placeCount = placeCountFor(req.getDurationMinutes());
         Random rng = new Random();
+        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
 
         List<CourseResponse> results = new ArrayList<>();
         List<AiCourseClient.AiCoursePlan> aiPlans =
-                aiCourseClient.recommendCourses(req, candidates, placeCount, 3, List.of());
-        for (int i = 0; i < aiPlans.size() && results.size() < 3; i++) {
+                aiCourseClient.recommendCourses(req, candidates, placeCount, RECOMMENDED_COURSE_COUNT, List.of());
+        for (int i = 0; i < aiPlans.size() && results.size() < RECOMMENDED_COURSE_COUNT; i++) {
             List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
-            if (!picked.isEmpty()) {
-                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode()));
+            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation(), transportCache)) {
+                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation()));
             }
         }
 
-        while (results.size() < 3) {
-            List<Place> picked = pickRandom(candidates, placeCount, rng);
-            results.add(buildResponse(results.size(), picked, req.getTravelMode()));
+        while (results.size() < RECOMMENDED_COURSE_COUNT) {
+            int index = results.size();
+            List<Place> picked = pickTimeAware(
+                    candidates,
+                    placeCount,
+                    rng,
+                    req.getTravelMode(),
+                    durationMinutes,
+                    targetMinRatio(index),
+                    targetMaxRatio(index),
+                    List.of(),
+                    req.getDepartureStation(),
+                    transportCache
+            );
+            results.add(buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
         }
         return results;
     }
@@ -109,6 +128,8 @@ public class CourseService {
         int placeCount = req.getCurrentPlaces() != null && !req.getCurrentPlaces().isEmpty()
                 ? req.getCurrentPlaces().size()
                 : placeCountFor(req.getDurationMinutes());
+        int durationMinutes = normalizedDuration(req.getDurationMinutes());
+        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
 
         List<String> lockedPlaceIds = req.getCurrentPlaces() == null
                 ? List.of()
@@ -124,9 +145,25 @@ public class CourseService {
                 ? List.of()
                 : placesByIds(aiPlans.get(0).placeIds(), candidates, placeCount);
 
+        if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation(), transportCache)) {
+            aiPicked = pickTimeAware(
+                    candidates,
+                    placeCount,
+                    new Random(),
+                    req.getTravelMode(),
+                    durationMinutes,
+                    0.70,
+                    0.85,
+                    lockedPlaceIds,
+                    req.getDepartureStation(),
+                    transportCache
+            );
+        }
+
         List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
+        merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation(), transportCache);
         String title = aiPlans.isEmpty() ? "AI 재추천 코스" : aiPlans.get(0).title();
-        return buildResponse(0, title, merged, req.getTravelMode());
+        return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation());
     }
 
     private List<Place> selectCandidates(List<String> themeTags) {
@@ -146,6 +183,52 @@ public class CourseService {
         List<Place> shuffled = new ArrayList<>(pool);
         Collections.shuffle(shuffled, rng);
         return shuffled.subList(0, Math.min(count, shuffled.size()));
+    }
+
+    private List<Place> pickTimeAware(List<Place> pool, int count, Random rng, String travelMode,
+                                      int durationMinutes, double minRatio, double maxRatio,
+                                      List<String> requiredPlaceIds,
+                                      String departureStation,
+                                      Map<String, TransportInfoResponse> transportCache) {
+        if (pool == null || pool.isEmpty()) return List.of();
+
+        int targetMin = (int) Math.floor(durationMinutes * minRatio);
+        int targetMax = (int) Math.ceil(durationMinutes * maxRatio);
+        List<Place> required = placesByIds(requiredPlaceIds, pool, count);
+        List<Place> bestUnderLimit = new ArrayList<>(required);
+        int bestScore = Integer.MAX_VALUE;
+
+        for (int attempt = 0; attempt < FALLBACK_PICK_ATTEMPTS; attempt++) {
+            List<Place> picked = new ArrayList<>(required);
+            List<Place> shuffled = new ArrayList<>(pool);
+            Collections.shuffle(shuffled, rng);
+
+            for (Place place : shuffled) {
+                if (picked.size() >= Math.min(count, pool.size())) break;
+                if (picked.stream().noneMatch(p -> p.getId().equals(place.getId()))) {
+                    picked.add(place);
+                }
+            }
+
+            int minutes = estimateTotalMinutes(picked, travelMode, departureStation, transportCache);
+            if (minutes <= durationMinutes) {
+                int score = minutes >= targetMin && minutes <= targetMax
+                        ? 0
+                        : Math.min(Math.abs(minutes - targetMin), Math.abs(minutes - targetMax));
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestUnderLimit = picked;
+                }
+                if (score == 0) {
+                    return picked;
+                }
+            }
+        }
+
+        if (!bestUnderLimit.isEmpty()) {
+            return bestUnderLimit;
+        }
+        return trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation, transportCache);
     }
 
     private List<Place> placesByIds(List<String> ids, List<Place> candidates, int limit) {
@@ -207,15 +290,137 @@ public class CourseService {
         return null;
     }
 
-    private CourseResponse buildResponse(int index, List<Place> places, String travelMode) {
-        String[] titles = {"코스 A", "코스 B", "코스 C"};
-        return buildResponse(index, titles[Math.min(index, titles.length - 1)], places, travelMode);
+    private boolean isValidCourse(List<Place> places, int placeCount, String travelMode, int durationMinutes,
+                                  List<String> requiredPlaceIds,
+                                  String departureStation,
+                                  Map<String, TransportInfoResponse> transportCache) {
+        if (places == null || places.isEmpty()) return false;
+        if (places.size() < Math.max(1, placeCount)) return false;
+
+        Set<String> uniqueIds = new HashSet<>();
+        for (Place place : places) {
+            if (place == null || place.getId() == null || !uniqueIds.add(place.getId())) {
+                return false;
+            }
+        }
+
+        if (requiredPlaceIds != null) {
+            for (String requiredId : requiredPlaceIds) {
+                if (requiredId != null && !uniqueIds.contains(requiredId)) {
+                    return false;
+                }
+            }
+        }
+
+        return estimateTotalMinutes(places, travelMode, departureStation, transportCache) <= durationMinutes;
     }
 
-    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode) {
+    private List<Place> trimToFit(List<Place> places, String travelMode, int durationMinutes,
+                                  List<String> lockedPlaceIds,
+                                  String departureStation,
+                                  Map<String, TransportInfoResponse> transportCache) {
+        List<Place> result = new ArrayList<>(places == null ? List.of() : places);
+        Set<String> locked = lockedPlaceIds == null ? Set.of() : new HashSet<>(lockedPlaceIds);
+
+        while (result.size() > 1 && estimateTotalMinutes(result, travelMode, departureStation, transportCache) > durationMinutes) {
+            int removableIndex = -1;
+            for (int i = result.size() - 1; i >= 0; i--) {
+                Place place = result.get(i);
+                if (place.getId() == null || !locked.contains(place.getId())) {
+                    removableIndex = i;
+                    break;
+                }
+            }
+            if (removableIndex < 0) break;
+            result.remove(removableIndex);
+        }
+        return result;
+    }
+
+    private int estimateTotalMinutes(List<Place> places, String travelMode, String departureStation,
+                                     Map<String, TransportInfoResponse> transportCache) {
+        if (places == null || places.isEmpty()) return 0;
+        int total = 0;
+        Place station = stationPlace(departureStation);
+        total += travelMinutes(station, places.get(0), travelMode, transportCache);
+
+        for (int i = 0; i < places.size(); i++) {
+            Place cur = places.get(i);
+            total += parseMin(stayTimeFor(cur.getCategory()));
+
+            if (i < places.size() - 1) {
+                total += travelMinutes(cur, places.get(i + 1), travelMode, transportCache);
+            }
+        }
+        total += travelMinutes(places.get(places.size() - 1), station, travelMode, transportCache);
+        return total;
+    }
+
+    private int travelMinutes(Place from, Place to, String travelMode, Map<String, TransportInfoResponse> transportCache) {
+        TransportInfoResponse transport = cachedTransport(from, to, transportCache);
+        boolean isWalk = "WALK".equals(travelMode);
+        return parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
+    }
+
+    private TransportInfoResponse cachedTransport(Place from, Place to, Map<String, TransportInfoResponse> cache) {
+        String key = from.getId() + "->" + to.getId();
+        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to));
+    }
+
+    private Place stationPlace(String departureStation) {
+        String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase(Locale.ROOT);
+        Place station = new Place();
+        if (normalized.contains("SEO") || normalized.contains("SEODDAEJEON") || normalized.contains("서대전")) {
+            station.setId("__STATION_SEODDAEJEON__");
+            station.setName("서대전역");
+            station.setLatitude(BigDecimal.valueOf(36.3226));
+            station.setLongitude(BigDecimal.valueOf(127.4039));
+        } else {
+            station.setId("__STATION_DAEJEON__");
+            station.setName("대전역");
+            station.setLatitude(BigDecimal.valueOf(36.3325));
+            station.setLongitude(BigDecimal.valueOf(127.4348));
+        }
+        station.setCategory("STATION");
+        return station;
+    }
+
+    private int normalizedDuration(int durationMinutes) {
+        return durationMinutes > 0 ? durationMinutes : 120;
+    }
+
+    private double targetMinRatio(int index) {
+        return switch (index) {
+            case 0 -> 0.50;
+            case 1 -> 0.65;
+            default -> 0.80;
+        };
+    }
+
+    private double targetMaxRatio(int index) {
+        return switch (index) {
+            case 0 -> 0.60;
+            case 1 -> 0.75;
+            default -> 0.90;
+        };
+    }
+
+    private CourseResponse buildResponse(int index, List<Place> places, String travelMode) {
+        return buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], places, travelMode, null);
+    }
+
+    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode, String departureStation) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
+        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
+        Place station = stationPlace(departureStation);
+
+        if (!places.isEmpty()) {
+            TransportInfoResponse departureTransport = cachedTransport(station, places.get(0), transportCache);
+            totalMinutes += parseMin("WALK".equals(travelMode) ? departureTransport.getWalkTime() : departureTransport.getTaxiTime());
+            if (!"WALK".equals(travelMode)) totalFare += departureTransport.getTaxiFare();
+        }
 
         for (int i = 0; i < places.size(); i++) {
             Place cur = places.get(i);
@@ -230,6 +435,12 @@ public class CourseService {
                 if (!isWalk) totalFare += transport.getTaxiFare();
             }
             stops.add(new CourseStopResponse(cur, stayTime, transport, travelMode));
+        }
+
+        if (!places.isEmpty()) {
+            TransportInfoResponse returnTransport = cachedTransport(places.get(places.size() - 1), station, transportCache);
+            totalMinutes += parseMin("WALK".equals(travelMode) ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
+            if (!"WALK".equals(travelMode)) totalFare += returnTransport.getTaxiFare();
         }
 
         String subTitle = places.stream().map(Place::getName).collect(Collectors.joining(" → "));
