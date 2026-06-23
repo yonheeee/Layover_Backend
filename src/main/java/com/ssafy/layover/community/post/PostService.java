@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -22,6 +23,8 @@ public class PostService {
 
     private final PostMapper postMapper;
     private final CommentMapper commentMapper;
+
+    private static final Set<String> ALLOWED_CATEGORIES = Set.of("SHARE", "QUESTION", "TOGETHER", "FREE");
 
     public Map<String, Object> getPosts(String category, int page, int size) {
         int total = postMapper.countAll(category);
@@ -49,6 +52,12 @@ public class PostService {
 
     @Transactional
     public ApiResponse<PostDetailResponse> createPost(String userId, PostCreateRequest req) {
+        String validationMessage = validateWritablePost(userId, req == null ? null : req.getCategory(),
+                req == null ? null : req.getTitle(), req == null ? null : req.getContent());
+        if (validationMessage != null) {
+            return ApiResponse.fail(validationMessage);
+        }
+
         String id = UUID.randomUUID().toString();
         postMapper.insert(id, userId, req);
         PostDetailResponse post = postMapper.findById(id);
@@ -59,6 +68,12 @@ public class PostService {
     }
 
     public ApiResponse<Void> updatePost(String id, String userId, PostUpdateRequest req) {
+        String validationMessage = validateWritablePost(userId, req == null ? null : req.getCategory(),
+                req == null ? null : req.getTitle(), req == null ? null : req.getContent());
+        if (validationMessage != null) {
+            return ApiResponse.fail(validationMessage);
+        }
+
         String owner = postMapper.findOwnerById(id);
         if (owner == null) {
             return ApiResponse.fail("존재하지 않는 게시글입니다.");
@@ -71,6 +86,10 @@ public class PostService {
     }
 
     public ApiResponse<Void> deletePost(String id, String userId) {
+        if (userId == null || userId.isBlank()) {
+            return ApiResponse.fail("로그인이 필요합니다.");
+        }
+
         String owner = postMapper.findOwnerById(id);
         if (owner == null) {
             return ApiResponse.fail("존재하지 않는 게시글입니다.");
@@ -84,6 +103,10 @@ public class PostService {
 
     @Transactional
     public ApiResponse<Boolean> toggleLike(String postId, String userId) {
+        if (userId == null || userId.isBlank()) {
+            return ApiResponse.fail("로그인이 필요합니다.");
+        }
+
         if (postMapper.existsLike(postId, userId)) {
             postMapper.deleteLike(postId, userId);
             postMapper.decrementLikeCount(postId);
@@ -98,6 +121,25 @@ public class PostService {
     public boolean getLikeStatus(String postId, String userId) {
         if (userId == null) return false;
         return postMapper.existsLike(postId, userId);
+    }
+
+    private String validateWritablePost(String userId, String category, String title, String content) {
+        if (userId == null || userId.isBlank()) {
+            return "로그인이 필요합니다.";
+        }
+        if (category == null || category.isBlank()) {
+            return "카테고리를 선택해주세요.";
+        }
+        if (!ALLOWED_CATEGORIES.contains(category)) {
+            return "지원하지 않는 게시글 카테고리입니다.";
+        }
+        if (title == null || title.isBlank()) {
+            return "제목을 입력해주세요.";
+        }
+        if (content == null || content.isBlank()) {
+            return "내용을 입력해주세요.";
+        }
+        return null;
     }
 
     public List<MyPostResponse> getMyPosts(String userId) {
