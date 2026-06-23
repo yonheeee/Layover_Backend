@@ -8,7 +8,7 @@ public class DiPlaceResponse {
     private final String id;
     private final String name;
     private final String category;
-    private final boolean isOpen;
+    private final Boolean isOpen;
     private final String desc;
     private final String latLng;
     private final double lat;

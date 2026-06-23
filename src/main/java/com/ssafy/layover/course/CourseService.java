@@ -4,7 +4,6 @@ import com.ssafy.layover.bus.BusService;
 import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,7 +11,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class CourseService {
 
     private final PlaceMapper placeMapper;
@@ -20,6 +18,16 @@ public class CourseService {
     private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
     private final TMapApiClient tMapApiClient;
+
+    public CourseService(PlaceMapper placeMapper, CourseMapper courseMapper,
+                         CoursePlaceMapper coursePlaceMapper, BusService busService,
+                         TMapApiClient tMapApiClient) {
+        this.placeMapper = placeMapper;
+        this.courseMapper = courseMapper;
+        this.coursePlaceMapper = coursePlaceMapper;
+        this.busService = busService;
+        this.tMapApiClient = tMapApiClient;
+    }
     @Transactional
     public String saveCourse(String userId, SaveCourseRequest req) {
         String themeTagsJson = null;

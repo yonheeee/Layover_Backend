@@ -2,7 +2,6 @@ package com.ssafy.layover.bookmark;
 
 import com.ssafy.layover.bookmark.dto.BookmarkResponse;
 import com.ssafy.layover.common.dto.ApiResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -11,10 +10,13 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/bookmarks")
-@RequiredArgsConstructor
 public class BookmarkController {
 
     private final BookmarkService bookmarkService;
+
+    public BookmarkController(BookmarkService bookmarkService) {
+        this.bookmarkService = bookmarkService;
+    }
 
     @PostMapping("/{placeId}")
     public ResponseEntity<ApiResponse<Void>> addBookmark(
