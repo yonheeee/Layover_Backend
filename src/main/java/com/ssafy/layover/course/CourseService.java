@@ -93,15 +93,15 @@ public class CourseService {
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
         int placeCount = placeCountFor(req.getDurationMinutes());
         Random rng = new Random();
-        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
+        Map<String, TransportInfoResponse> sharedCache = new HashMap<>();
 
         List<CourseResponse> results = new ArrayList<>();
         List<AiCourseClient.AiCoursePlan> aiPlans =
                 aiCourseClient.recommendCourses(req, candidates, placeCount, RECOMMENDED_COURSE_COUNT, List.of());
         for (int i = 0; i < aiPlans.size() && results.size() < RECOMMENDED_COURSE_COUNT; i++) {
             List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
-            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation(), transportCache)) {
-                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation()));
+            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation(), sharedCache)) {
+                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation(), sharedCache));
             }
         }
 
@@ -117,9 +117,9 @@ public class CourseService {
                     targetMaxRatio(index),
                     List.of(),
                     req.getDepartureStation(),
-                    transportCache
+                    sharedCache
             );
-            results.add(buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
+            results.add(buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation(), sharedCache));
         }
         return results;
     }
@@ -424,14 +424,18 @@ public class CourseService {
     }
 
     private CourseResponse buildResponse(int index, List<Place> places, String travelMode) {
-        return buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], places, travelMode, null);
+        return buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], places, travelMode, null, new HashMap<>());
     }
 
     private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode, String departureStation) {
+        return buildResponse(index, title, places, travelMode, departureStation, new HashMap<>());
+    }
+
+    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode, String departureStation, Map<String, TransportInfoResponse> sharedCache) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
-        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
+        Map<String, TransportInfoResponse> transportCache = sharedCache;
         Place station = stationPlace(departureStation);
 
         TransportInfoResponse departureTransport = null;

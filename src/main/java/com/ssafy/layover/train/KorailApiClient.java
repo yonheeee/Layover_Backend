@@ -22,12 +22,11 @@ public class KorailApiClient {
 
     public List<TrainResponse> fetchTrains(String stnNm, String date) {
         try {
-            String url = BASE_URL
-                    + "?cond%5Brun_ymd%3A%3AGTE%5D=20260101"
-                    + "&cond%5Brun_ymd%3A%3ALTE%5D=20261231"
-                    + "&cond%5Bstn_nm%3A%3AEQ%5D=" + URLEncoder.encode(stnNm, StandardCharsets.UTF_8)
-                    + "&numOfRows=100"
-                    + "&pageNo=1";
+        	String url = BASE_URL
+        	        + "?cond%5Brun_ymd%3A%3AEQ%5D=" + date
+        	        + "&cond%5Bstn_nm%3A%3AEQ%5D=" + URLEncoder.encode(stnNm, StandardCharsets.UTF_8)
+        	        + "&numOfRows=100"
+        	        + "&pageNo=1";
 
             log.info("코레일 API 요청: {}", url);
 
