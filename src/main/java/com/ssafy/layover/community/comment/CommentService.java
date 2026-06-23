@@ -22,6 +22,13 @@ public class CommentService {
 
     @Transactional
     public ApiResponse<Void> createComment(String postId, String userId, CommentCreateRequest req) {
+        if (userId == null || userId.isBlank()) {
+            return ApiResponse.fail("로그인이 필요합니다.");
+        }
+        if (req == null || req.getContent() == null || req.getContent().isBlank()) {
+            return ApiResponse.fail("댓글 내용을 입력해주세요.");
+        }
+
         commentMapper.insert(UUID.randomUUID().toString(), postId, userId, req.getContent());
         commentMapper.incrementCommentCount(postId);
         return ApiResponse.success("댓글이 등록되었습니다.", null);
@@ -29,6 +36,10 @@ public class CommentService {
 
     @Transactional
     public ApiResponse<Void> deleteComment(String postId, String commentId, String userId) {
+        if (userId == null || userId.isBlank()) {
+            return ApiResponse.fail("로그인이 필요합니다.");
+        }
+
         String owner = commentMapper.findOwnerById(commentId);
         if (owner == null) {
             return ApiResponse.fail("존재하지 않는 댓글입니다.");

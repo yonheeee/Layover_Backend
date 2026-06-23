@@ -23,6 +23,12 @@ public class CourseController {
         return ResponseEntity.ok(courseService.generateCourses(req));
     }
 
+    @PostMapping("/regenerate")
+    public ResponseEntity<CourseResponse> regenerateCourse(
+            @RequestBody CourseRegenerateRequest req) {
+        return ResponseEntity.ok(courseService.regenerateCourse(req));
+    }
+
     @PostMapping("/save")
     public ResponseEntity<ApiResponse<String>> saveCourse(
             @AuthenticationPrincipal String userId,

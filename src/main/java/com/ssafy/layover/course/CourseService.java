@@ -18,15 +18,18 @@ public class CourseService {
     private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
     private final TMapApiClient tMapApiClient;
+    private final AiCourseClient aiCourseClient;
 
     public CourseService(PlaceMapper placeMapper, CourseMapper courseMapper,
                          CoursePlaceMapper coursePlaceMapper, BusService busService,
-                         TMapApiClient tMapApiClient) {
+                         TMapApiClient tMapApiClient,
+                         AiCourseClient aiCourseClient) {
         this.placeMapper = placeMapper;
         this.courseMapper = courseMapper;
         this.coursePlaceMapper = coursePlaceMapper;
         this.busService = busService;
         this.tMapApiClient = tMapApiClient;
+        this.aiCourseClient = aiCourseClient;
     }
     @Transactional
     public String saveCourse(String userId, SaveCourseRequest req) {
@@ -81,11 +84,49 @@ public class CourseService {
         Random rng = new Random();
 
         List<CourseResponse> results = new ArrayList<>();
-        for (int i = 0; i < 3; i++) {
+        List<AiCourseClient.AiCoursePlan> aiPlans =
+                aiCourseClient.recommendCourses(req, candidates, placeCount, 3, List.of());
+        for (int i = 0; i < aiPlans.size() && results.size() < 3; i++) {
+            List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
+            if (!picked.isEmpty()) {
+                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode()));
+            }
+        }
+
+        while (results.size() < 3) {
             List<Place> picked = pickRandom(candidates, placeCount, rng);
-            results.add(buildResponse(i, picked, req.getTravelMode()));
+            results.add(buildResponse(results.size(), picked, req.getTravelMode()));
         }
         return results;
+    }
+
+    public CourseResponse regenerateCourse(CourseRegenerateRequest req) {
+        List<Place> candidates = selectCandidates(req.getThemeTags());
+        if (candidates.size() < 2) {
+            candidates = placeMapper.findAllWithLocation();
+        }
+
+        int placeCount = req.getCurrentPlaces() != null && !req.getCurrentPlaces().isEmpty()
+                ? req.getCurrentPlaces().size()
+                : placeCountFor(req.getDurationMinutes());
+
+        List<String> lockedPlaceIds = req.getCurrentPlaces() == null
+                ? List.of()
+                : req.getCurrentPlaces().stream()
+                .filter(CourseRegenerateRequest.CurrentPlace::isLocked)
+                .map(CourseRegenerateRequest.CurrentPlace::getId)
+                .filter(Objects::nonNull)
+                .toList();
+
+        List<AiCourseClient.AiCoursePlan> aiPlans =
+                aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds);
+        List<Place> aiPicked = aiPlans.isEmpty()
+                ? List.of()
+                : placesByIds(aiPlans.get(0).placeIds(), candidates, placeCount);
+
+        List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
+        String title = aiPlans.isEmpty() ? "AI 재추천 코스" : aiPlans.get(0).title();
+        return buildResponse(0, title, merged, req.getTravelMode());
     }
 
     private List<Place> selectCandidates(List<String> themeTags) {
@@ -107,9 +148,71 @@ public class CourseService {
         return shuffled.subList(0, Math.min(count, shuffled.size()));
     }
 
+    private List<Place> placesByIds(List<String> ids, List<Place> candidates, int limit) {
+        Map<String, Place> byId = candidates.stream()
+                .collect(Collectors.toMap(Place::getId, place -> place, (a, b) -> a, LinkedHashMap::new));
+        List<Place> result = new ArrayList<>();
+        if (ids != null) {
+            for (String id : ids) {
+                Place place = byId.get(id);
+                if (place != null && result.stream().noneMatch(p -> p.getId().equals(place.getId()))) {
+                    result.add(place);
+                }
+                if (result.size() >= limit) break;
+            }
+        }
+        return result;
+    }
+
+    private List<Place> mergeLockedPlaces(CourseRegenerateRequest req, List<Place> aiPicked,
+                                          List<Place> candidates, int placeCount) {
+        Map<String, Place> byId = candidates.stream()
+                .collect(Collectors.toMap(Place::getId, place -> place, (a, b) -> a, LinkedHashMap::new));
+        List<Place> result = new ArrayList<>();
+        Iterator<Place> aiIterator = aiPicked.iterator();
+
+        if (req.getCurrentPlaces() != null) {
+            for (CourseRegenerateRequest.CurrentPlace current : req.getCurrentPlaces()) {
+                if (result.size() >= placeCount) break;
+                if (current.isLocked()) {
+                    Place locked = byId.get(current.getId());
+                    if (locked != null && result.stream().noneMatch(p -> p.getId().equals(locked.getId()))) {
+                        result.add(locked);
+                    }
+                    continue;
+                }
+                Place next = nextUnused(aiIterator, result);
+                if (next != null) result.add(next);
+            }
+        }
+
+        Random rng = new Random();
+        List<Place> fallback = pickRandom(candidates, Math.min(placeCount, candidates.size()), rng);
+        for (Place place : fallback) {
+            if (result.size() >= placeCount) break;
+            if (result.stream().noneMatch(p -> p.getId().equals(place.getId()))) {
+                result.add(place);
+            }
+        }
+        return result;
+    }
+
+    private Place nextUnused(Iterator<Place> iterator, List<Place> used) {
+        while (iterator.hasNext()) {
+            Place next = iterator.next();
+            if (used.stream().noneMatch(p -> p.getId().equals(next.getId()))) {
+                return next;
+            }
+        }
+        return null;
+    }
+
     private CourseResponse buildResponse(int index, List<Place> places, String travelMode) {
         String[] titles = {"코스 A", "코스 B", "코스 C"};
+        return buildResponse(index, titles[Math.min(index, titles.length - 1)], places, travelMode);
+    }
 
+    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
@@ -132,7 +235,7 @@ public class CourseService {
         String subTitle = places.stream().map(Place::getName).collect(Collectors.joining(" → "));
         return new CourseResponse(
                 UUID.randomUUID().toString(),
-                titles[index],
+                title,
                 subTitle,
                 formatMin(totalMinutes),
                 "약 " + String.format("%,d", totalFare) + "원",
