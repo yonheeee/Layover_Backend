@@ -131,6 +131,10 @@ public class CourseService {
     }
 
     private TransportInfoResponse calcTransport(Place from, Place to) {
+        if (from.getLatitude() == null || from.getLongitude() == null
+                || to.getLatitude() == null || to.getLongitude() == null) {
+            return new TransportInfoResponse("20분", "15분", "10분", 5000);
+        }
         double fLat = from.getLatitude().doubleValue(), fLng = from.getLongitude().doubleValue();
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
         double dist = haversine(fLat, fLng, tLat, tLng);
