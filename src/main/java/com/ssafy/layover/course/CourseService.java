@@ -17,6 +17,10 @@ public class CourseService {
     private static final int RECOMMENDED_COURSE_COUNT = 3;
     private static final int FALLBACK_PICK_ATTEMPTS = 80;
     private static final String[] FALLBACK_TITLES = {"빠른 코스", "여유 코스", "딱 맞는 코스"};
+    private static final double DAEJEON_LAT = 36.3316;
+    private static final double DAEJEON_LNG = 127.4342;
+    private static final double SEODDAEJEON_LAT = 36.3293;
+    private static final double SEODDAEJEON_LNG = 127.4019;
 
     private final PlaceMapper placeMapper;
     private final CourseMapper courseMapper;
@@ -80,9 +84,10 @@ public class CourseService {
     }
 
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
-        List<Place> candidates = selectCandidates(req.getThemeTags());
+        List<Place> candidates = selectCandidates(req.getThemeTags(), req.getDepartureStation(), req.getDurationMinutes());
         if (candidates.size() < 2) {
-            candidates = placeMapper.findAllWithLocation();
+            candidates = placeMapper.findAllWithinRadius(stationCoord(req.getDepartureStation())[0],
+                    stationCoord(req.getDepartureStation())[1], 7.0);
         }
 
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
@@ -120,9 +125,10 @@ public class CourseService {
     }
 
     public CourseResponse regenerateCourse(CourseRegenerateRequest req) {
-        List<Place> candidates = selectCandidates(req.getThemeTags());
+        List<Place> candidates = selectCandidates(req.getThemeTags(), req.getDepartureStation(), req.getDurationMinutes());
         if (candidates.size() < 2) {
-            candidates = placeMapper.findAllWithLocation();
+            candidates = placeMapper.findAllWithinRadius(stationCoord(req.getDepartureStation())[0],
+                    stationCoord(req.getDepartureStation())[1], 7.0);
         }
 
         int placeCount = req.getCurrentPlaces() != null && !req.getCurrentPlaces().isEmpty()
@@ -166,17 +172,29 @@ public class CourseService {
         return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation());
     }
 
-    private List<Place> selectCandidates(List<String> themeTags) {
+    private List<Place> selectCandidates(List<String> themeTags, String departureStation, int durationMinutes) {
+        double[] coord = stationCoord(departureStation);
+        double lat = coord[0];
+        double lng = coord[1];
+        double radiusKm = durationMinutes <= 180 ? 4.0 : 7.0;
+
         if (themeTags == null || themeTags.isEmpty()) {
-            return placeMapper.findAllWithLocation();
+            return placeMapper.findAllWithinRadius(lat, lng, radiusKm);
         }
-        return placeMapper.findByCategoryIn(themeTags);
+        return placeMapper.findByCategoryInWithinRadius(themeTags, lat, lng, radiusKm);
+    }
+
+    private double[] stationCoord(String departureStation) {
+        String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase(Locale.ROOT);
+        if (normalized.contains("SEO") || normalized.contains("SEODDAEJEON")) {
+            return new double[]{SEODDAEJEON_LAT, SEODDAEJEON_LNG};
+        }
+        return new double[]{DAEJEON_LAT, DAEJEON_LNG};
     }
 
     private int placeCountFor(int durationMinutes) {
-        if (durationMinutes <= 60)  return 2;
-        if (durationMinutes <= 120) return 3;
-        return 4;
+        int count = durationMinutes / 50;
+        return Math.max(1, Math.min(4, count));
     }
 
     private List<Place> pickRandom(List<Place> pool, int count, Random rng) {
@@ -416,11 +434,15 @@ public class CourseService {
         Map<String, TransportInfoResponse> transportCache = new HashMap<>();
         Place station = stationPlace(departureStation);
 
+        TransportInfoResponse departureTransport = null;
         if (!places.isEmpty()) {
-            TransportInfoResponse departureTransport = cachedTransport(station, places.get(0), transportCache);
+            departureTransport = cachedTransport(station, places.get(0), transportCache);
             totalMinutes += parseMin("WALK".equals(travelMode) ? departureTransport.getWalkTime() : departureTransport.getTaxiTime());
             if (!"WALK".equals(travelMode)) totalFare += departureTransport.getTaxiFare();
         }
+        stops.add(CourseStopResponse.ofStation(station.getName(),
+                station.getLatitude().doubleValue(), station.getLongitude().doubleValue(),
+                departureTransport, travelMode));
 
         for (int i = 0; i < places.size(); i++) {
             Place cur = places.get(i);
@@ -433,15 +455,18 @@ public class CourseService {
                 boolean isWalk = "WALK".equals(travelMode);
                 totalMinutes += parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
                 if (!isWalk) totalFare += transport.getTaxiFare();
+            } else {
+                transport = cachedTransport(cur, station, transportCache);
+                boolean isWalk = "WALK".equals(travelMode);
+                totalMinutes += parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
+                if (!isWalk) totalFare += transport.getTaxiFare();
             }
             stops.add(new CourseStopResponse(cur, stayTime, transport, travelMode));
         }
 
-        if (!places.isEmpty()) {
-            TransportInfoResponse returnTransport = cachedTransport(places.get(places.size() - 1), station, transportCache);
-            totalMinutes += parseMin("WALK".equals(travelMode) ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
-            if (!"WALK".equals(travelMode)) totalFare += returnTransport.getTaxiFare();
-        }
+        stops.add(CourseStopResponse.ofStation(station.getName(),
+                station.getLatitude().doubleValue(), station.getLongitude().doubleValue(),
+                null, travelMode));
 
         String subTitle = places.stream().map(Place::getName).collect(Collectors.joining(" → "));
         return new CourseResponse(
@@ -487,11 +512,11 @@ public class CourseService {
 
     private String stayTimeFor(String category) {
         return switch (category) {
-            case "FOOD"    -> "60분";
-            case "CAFE"    -> "30분";
-            case "NATURE"  -> "60분";
-            case "CULTURE" -> "45분";
-            default        -> "45분";
+            case "FOOD"    -> "45분";
+            case "CAFE"    -> "20분";
+            case "NATURE"  -> "40분";
+            case "CULTURE" -> "30분";
+            default        -> "30분";
         };
     }
 

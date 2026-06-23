@@ -25,4 +25,17 @@ public interface PlaceMapper {
                  @Param("keyword") String keyword);
 
     void upsertPlace(Place place);
+
+    List<Place> findByCategoryInWithinRadius(
+            @Param("categories") List<String> categories,
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusKm") double radiusKm
+    );
+
+    List<Place> findAllWithinRadius(
+            @Param("lat") double lat,
+            @Param("lng") double lng,
+            @Param("radiusKm") double radiusKm
+    );
 }

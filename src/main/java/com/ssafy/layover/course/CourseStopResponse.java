@@ -45,4 +45,36 @@ public class CourseStopResponse {
                 ? String.format("%,d원", nextTransport.getTaxiFare())
                 : null;
     }
+
+    private CourseStopResponse(String id, String name, String category, boolean isOpen,
+                               String stayTime, boolean isLocked, double lat, double lng,
+                               TransportInfoResponse nextTransport, String transport,
+                               String transportTime, String taxiFare) {
+        this.id = id;
+        this.name = name;
+        this.category = category;
+        this.isOpen = isOpen;
+        this.stayTime = stayTime;
+        this.isLocked = isLocked;
+        this.lat = lat;
+        this.lng = lng;
+        this.nextTransport = nextTransport;
+        this.transport = transport;
+        this.transportTime = transportTime;
+        this.taxiFare = taxiFare;
+    }
+
+    public static CourseStopResponse ofStation(String stationName, double lat, double lng,
+                                               TransportInfoResponse nextTransport, String travelMode) {
+        boolean isWalk = "WALK".equals(travelMode);
+        String transport = isWalk ? "walk" : "taxi";
+        String transportTime = nextTransport != null
+                ? (isWalk ? nextTransport.getWalkTime() : nextTransport.getTaxiTime())
+                : null;
+        String taxiFare = (nextTransport != null && !isWalk)
+                ? String.format("%,d원", nextTransport.getTaxiFare())
+                : null;
+        return new CourseStopResponse("__STATION__", stationName, "STATION", true, null, true,
+                lat, lng, nextTransport, transport, transportTime, taxiFare);
+    }
 }

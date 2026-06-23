@@ -6,5 +6,6 @@ public record TrainResponse(
         String arriveTime,
         String destination,
         String stationName,
-        String stationCode
+        String stationCode,
+        String mrntNm
 ) {}

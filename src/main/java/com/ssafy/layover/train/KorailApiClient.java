@@ -78,7 +78,8 @@ public class KorailApiClient {
                             toHhmm(item.trn_arvl_dt()),
                             item.arvl_stn_nm(),
                             item.dptre_stn_nm(),
-                            item.stn_nm()
+                            item.stn_nm(),
+                            item.mrnt_nm()
                     ))
                     .toList();
 
@@ -113,6 +114,7 @@ public class KorailApiClient {
             String stn_nm,
             String trn_no,
             String trn_dptre_dt,
-            String trn_arvl_dt
+            String trn_arvl_dt,
+            String mrnt_nm
     ) {}
 }
