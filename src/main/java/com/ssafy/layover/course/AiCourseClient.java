@@ -93,9 +93,10 @@ public class AiCourseClient {
         sb.append("1. Choose ONLY from the candidate place ids below. Never invent ids or place names.\n");
         sb.append("2. Each course must contain exactly ").append(placeCount).append(" placeIds unless there are not enough candidates.\n");
         sb.append("3. Each course must fit within availableDurationMinutes, including estimated stay time and travel time.\n");
-        sb.append("4. Prefer currently open places. Avoid closed places unless there are no good alternatives.\n");
-        sb.append("5. If locked place ids are provided, every returned course must include all locked ids.\n");
-        sb.append("6. Keep route order geographically reasonable for a short rail layover.\n");
+        sb.append("4. The time budget includes going from the departure station to the first place AND returning from the last place to the departure station.\n");
+        sb.append("5. Prefer currently open places. Avoid closed places unless there are no good alternatives.\n");
+        sb.append("6. If locked place ids are provided, every returned course must include all locked ids.\n");
+        sb.append("7. Keep route order geographically reasonable for a short rail layover and finish near enough to return safely.\n");
         sb.append("\n");
         sb.append("Stay-time estimates to use:\n");
         sb.append("- FOOD: 60 minutes\n");
@@ -116,6 +117,7 @@ public class AiCourseClient {
         sb.append("Request context:\n");
         sb.append("Number of courses: ").append(courseCount).append("\n");
         sb.append("Departure station: ").append(req.getDepartureStation()).append("\n");
+        sb.append("Departure station coordinates: ").append(stationCoordinateHint(req.getDepartureStation())).append("\n");
         sb.append("Available duration minutes: ").append(req.getDurationMinutes()).append("\n");
         sb.append("Travel mode: ").append(req.getTravelMode()).append("\n");
         sb.append("Weather: ").append(req.getWeatherCondition()).append("\n");
@@ -184,6 +186,14 @@ public class AiCourseClient {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String stationCoordinateHint(String departureStation) {
+        String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase();
+        if (normalized.contains("SEO") || normalized.contains("SEODDAEJEON") || normalized.contains("서대전")) {
+            return "Seo-Daejeon Station lat=36.3226, lng=127.4039";
+        }
+        return "Daejeon Station lat=36.3325, lng=127.4348";
     }
 
     public record AiCoursePlan(String title, List<String> placeIds) {
