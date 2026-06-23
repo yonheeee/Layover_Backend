@@ -12,5 +12,9 @@ public interface CourseMapper {
 
     List<Course> findByUserId(@Param("userId") String userId);
 
+    Course findByIdAndUserId(@Param("courseId") String courseId, @Param("userId") String userId);
+
+    void deleteById(@Param("courseId") String courseId);
+
     List<Course> findAllPublic();
 }

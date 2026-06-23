@@ -11,4 +11,6 @@ public interface CoursePlaceMapper {
     void insert(CoursePlace coursePlace);
 
     List<CoursePlace> findByCourseId(@Param("courseId") String courseId);
+
+    void deleteByCourseId(@Param("courseId") String courseId);
 }

@@ -22,4 +22,8 @@
         ORDER BY order_index ASC
     </select>
 
+    <delete id="deleteByCourseId">
+        DELETE FROM course_places WHERE course_id = #{courseId}
+    </delete>
+
 </mapper>

@@ -36,4 +36,12 @@ public class CourseController {
             @AuthenticationPrincipal String userId) {
         return ResponseEntity.ok(ApiResponse.success(courseService.getMyCourses(userId)));
     }
+
+    @DeleteMapping("/{courseId}")
+    public ResponseEntity<ApiResponse<Void>> deleteCourse(
+            @AuthenticationPrincipal String userId,
+            @PathVariable String courseId) {
+        courseService.deleteCourse(userId, courseId);
+        return ResponseEntity.ok(ApiResponse.success("코스가 삭제되었습니다.", null));
+    }
 }
