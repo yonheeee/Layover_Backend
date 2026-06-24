@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Component
@@ -268,6 +269,181 @@ public class AiCourseClient {
             return "Seo-Daejeon Station lat=36.3226, lng=127.4039";
         }
         return "Daejeon Station lat=36.3325, lng=127.4348";
+    }
+
+    // 3-course generation: 2 standard + 1 extended (durationMinutes+60)
+    public List<AiCoursePlan> recommendCourses(
+            CourseGenerateRequest req,
+            List<Place> standardCandidates,
+            List<Place> extendedCandidates,
+            int placeCount,
+            int extendedPlaceCount,
+            int courseCount,
+            List<String> lockedPlaceIds
+    ) {
+        if (!enabled || isBlank(apiKey) || isBlank(baseUrl)) {
+            return List.of();
+        }
+        if (blocked.get()) {
+            log.warn("[AI Course] 실패했습니다 - 이전 코스 추천 API 실패로 추가 호출을 차단합니다.");
+            return List.of();
+        }
+        List<Place> allCandidates = (extendedCandidates != null && !extendedCandidates.isEmpty())
+                ? extendedCandidates : standardCandidates;
+        if (allCandidates == null || allCandidates.isEmpty()) return List.of();
+
+        String prompt = buildPromptWithExtended(req, standardCandidates, extendedCandidates,
+                placeCount, extendedPlaceCount, courseCount, lockedPlaceIds);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("temperature", 0.2);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content",
+                        "You are a strict Daejeon rail layover route optimizer. "
+                                + "You must obey time, category, locked-place, and candidate-id constraints. "
+                                + "Return only valid JSON. Do not include markdown."),
+                Map.of("role", "user", "content", prompt)
+        ));
+        body.put("response_format", Map.of("type", "json_object"));
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                String response = restTemplate.postForObject(baseUrl, new HttpEntity<>(body, headers), String.class);
+                return parsePlansWithExtended(response, courseCount, placeCount, extendedPlaceCount,
+                        standardCandidates, extendedCandidates);
+            } catch (Exception e) {
+                log.warn("[AI Course] 코스 추천 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
+            }
+        }
+        blockFurtherCalls();
+        return List.of();
+    }
+
+    private String buildPromptWithExtended(
+            CourseGenerateRequest req,
+            List<Place> standardCandidates,
+            List<Place> extendedCandidates,
+            int placeCount,
+            int extendedPlaceCount,
+            int courseCount,
+            List<String> lockedPlaceIds
+    ) {
+        int durationMinutes = req.getDurationMinutes();
+        int extendedDuration = durationMinutes + 60;
+        boolean walkOnly = "WALK".equalsIgnoreCase(req.getTravelMode());
+        double standardRadius = radiusKmForPrompt(durationMinutes, walkOnly);
+        double extendedRadius = radiusKmForPrompt(extendedDuration, walkOnly);
+        double[] stationCoord = stationCoordinate(req.getDepartureStation());
+
+        Set<String> standardIds = standardCandidates.stream().map(Place::getId).collect(Collectors.toSet());
+        List<Place> promptCandidates = (extendedCandidates != null && !extendedCandidates.isEmpty())
+                ? extendedCandidates : standardCandidates;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Task: recommend Daejeon layover travel courses.\n");
+        sb.append("Return JSON only. No markdown, no comments, no extra text.\n");
+        sb.append("Required JSON schema: {\"courses\":[{\"title\":\"Korean course title\",\"placeIds\":[\"id1\",\"id2\"]}]}\n\n");
+
+        sb.append("Hard constraints:\n");
+        sb.append("1. Choose ONLY from the candidate place ids listed below. Never invent ids or names.\n");
+        sb.append("2. Courses 1 and 2: exactly ").append(placeCount).append(" placeIds each.\n");
+        sb.append("3. Course 3 (extended): exactly ").append(extendedPlaceCount).append(" placeIds.\n");
+        sb.append("4. Each course must fit within its time budget including station→first and last→station travel.\n");
+        sb.append("5. Prefer currently open places.\n");
+        sb.append("6. Courses 1 and 2 must be meaningfully different — share fewer than half their places.\n");
+        sb.append("7. Courses 1 and 2 category rules:\n");
+        sb.append("   - No two consecutive places may share the same category.\n");
+        sb.append("   - At most 1 FOOD place per course.\n");
+        sb.append("   - At most 2 CAFE places per course.\n");
+        sb.append("8. Courses 1 and 2: prefer places within ").append(String.format("%.1f", standardRadius)).append("km of the station (extendedOnly=true places are off-limits).\n");
+        sb.append("9. Course 3 (extended): may use all candidates including extendedOnly=true places up to ")
+                .append(String.format("%.1f", extendedRadius)).append("km. Visit more places or farther destinations than courses 1 and 2.\n");
+        if (lockedPlaceIds != null && !lockedPlaceIds.isEmpty()) {
+            sb.append("10. Must include locked place ids in every course: ").append(lockedPlaceIds).append("\n");
+        }
+        sb.append("\n");
+
+        sb.append("Stay-time estimates:\n");
+        sb.append("- FOOD: 60 min  - CAFE: 30 min  - NATURE: 60 min  - CULTURE: 45 min  - TOUR/other: 45 min\n\n");
+
+        sb.append("Time budgets:\n");
+        sb.append("- Course 1 (quick): ").append(durationMinutes).append(" min, ~50-60% utilization, ").append(placeCount).append(" places.\n");
+        sb.append("- Course 2 (relaxed): ").append(durationMinutes).append(" min, ~65-75% utilization, ").append(placeCount).append(" places.\n");
+        sb.append("- Course 3 (extended): ").append(extendedDuration).append(" min, ~80-90% utilization, ").append(extendedPlaceCount).append(" places.\n\n");
+
+        sb.append("Request context:\n");
+        sb.append("Departure station: ").append(req.getDepartureStation()).append(" — ").append(stationCoordinateHint(req.getDepartureStation())).append("\n");
+        sb.append("Travel mode: ").append(req.getTravelMode()).append("\n");
+        sb.append("Weather: ").append(req.getWeatherCondition())
+                .append(" (if rainy/snowy/very hot/cold, prefer indoor: FOOD, CAFE, CULTURE)\n");
+        sb.append("Preference tags: ").append(req.getThemeTags()).append("\n\n");
+
+        sb.append("Candidate places:\n");
+        promptCandidates.stream()
+                .limit(90)
+                .forEach(place -> {
+                    boolean extendedOnly = !standardIds.contains(place.getId());
+                    sb.append("- id=").append(place.getId())
+                            .append(", name=").append(place.getName())
+                            .append(", category=").append(place.getCategory())
+                            .append(", stationDistanceKm=")
+                            .append(String.format("%.2f", distanceKm(stationCoord[0], stationCoord[1], place)))
+                            .append(", open=").append(place.isCurrentlyOpen());
+                    if (extendedOnly) sb.append(", extendedOnly=true");
+                    sb.append("\n");
+                });
+
+        sb.append("\nBalance food, culture, and tourism when possible. Make routes geographically realistic for a short layover.");
+        return sb.toString();
+    }
+
+    private List<AiCoursePlan> parsePlansWithExtended(String response, int courseCount, int placeCount,
+                                                       int extendedPlaceCount,
+                                                       List<Place> standardCandidates,
+                                                       List<Place> extendedCandidates) throws Exception {
+        if (isBlank(response)) return List.of();
+
+        Set<String> standardIds = new HashSet<>();
+        for (Place p : standardCandidates) standardIds.add(p.getId());
+        Set<String> extendedIds = new HashSet<>();
+        for (Place p : extendedCandidates) extendedIds.add(p.getId());
+        if (extendedIds.isEmpty()) extendedIds = standardIds;
+
+        JsonNode root = objectMapper.readTree(response);
+        String content = root.path("choices").path(0).path("message").path("content").asText(null);
+        JsonNode contentRoot = isBlank(content) ? root : objectMapper.readTree(content);
+        JsonNode coursesNode = contentRoot.path("courses");
+
+        List<AiCoursePlan> plans = new ArrayList<>();
+        if (!coursesNode.isArray()) return plans;
+
+        int courseIdx = 0;
+        for (JsonNode courseNode : coursesNode) {
+            if (plans.size() >= courseCount) break;
+            JsonNode idsNode = courseNode.path("placeIds");
+            if (!idsNode.isArray()) { courseIdx++; continue; }
+
+            boolean isExtended = courseIdx == 2;
+            Set<String> validIds = isExtended ? extendedIds : standardIds;
+            int limit = isExtended ? extendedPlaceCount : placeCount;
+
+            List<String> ids = new ArrayList<>();
+            for (JsonNode idNode : idsNode) {
+                String id = idNode.asText();
+                if (validIds.contains(id) && !ids.contains(id)) ids.add(id);
+                if (ids.size() >= limit) break;
+            }
+
+            if (!ids.isEmpty()) {
+                plans.add(new AiCoursePlan(courseNode.path("title").asText("AI 추천 코스"), ids));
+            }
+            courseIdx++;
+        }
+        return plans;
     }
 
     public record AiCoursePlan(String title, List<String> placeIds) {
