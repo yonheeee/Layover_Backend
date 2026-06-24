@@ -30,13 +30,13 @@ public class PlaceService {
                 .toList();
     }
 
-    public Map<String, Object> getPlaces(String category, String keyword, int page, int size) {
+    public Map<String, Object> getPlaces(String category, String keyword, String district, int page, int size) {
         int offset = page * size;
-        List<PlaceListResponse> content = placeMapper.findAll(category, keyword, offset, size)
+        List<PlaceListResponse> content = placeMapper.findAll(category, keyword, district, offset, size)
                 .stream()
                 .map(PlaceListResponse::from)
                 .toList();
-        int totalElements = placeMapper.countAll(category, keyword);
+        int totalElements = placeMapper.countAll(category, keyword, district);
         int totalPages = (int) Math.ceil((double) totalElements / size);
 
         Map<String, Object> result = new LinkedHashMap<>();

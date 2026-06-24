@@ -42,15 +42,16 @@
           AND longitude IS NOT NULL
     </select>
 
-    <select id="searchByKeyword" resultMap="PlaceResultMap">
-        SELECT * FROM places
-        WHERE is_active = 1
-          AND category != 'STATION'
-          AND latitude IS NOT NULL
-          <if test="keyword != null and keyword != ''">
-              AND name LIKE CONCAT('%', #{keyword}, '%')
-          </if>
-    </select>
+	<select id="searchByKeyword" resultMap="PlaceResultMap">
+		SELECT * FROM places
+		WHERE is_active = 1
+		AND category != 'STATION'
+		AND latitude IS NOT NULL
+		<if test="keyword != null and keyword != ''">
+			AND (name LIKE CONCAT('%', #{keyword}, '%')
+			OR address LIKE CONCAT('%', #{keyword}, '%'))
+		</if>
+	</select>
 
     <select id="findById" resultMap="PlaceResultMap">
         SELECT * FROM places
@@ -68,29 +69,36 @@
         <if test="keyword != null and keyword != ''">
             AND name LIKE CONCAT('%', #{keyword}, '%')
         </if>
+        <if test="district != null and district != ''">
+            AND address LIKE CONCAT('%', #{district}, '%')
+        </if>
         ORDER BY name
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <select id="countAll" resultType="int">
-        SELECT COUNT(*) FROM places
-        WHERE is_active = 1
-        AND category != 'STATION'
-        <if test="category != null and category != ''">
-            AND category = #{category}
-        </if>
-        <if test="keyword != null and keyword != ''">
-            AND name LIKE CONCAT('%', #{keyword}, '%')
-        </if>
-    </select>
+	<select id="countAll" resultType="int">
+		SELECT COUNT(*) FROM places
+		WHERE is_active = 1
+		AND category != 'STATION'
+		<if test="category != null and category != ''">
+			AND category = #{category}
+		</if>
+		<if test="keyword != null and keyword != ''">
+			AND (name LIKE CONCAT('%', #{keyword}, '%')
+			OR address LIKE CONCAT('%', #{keyword}, '%'))
+		</if>
+		<if test="district != null and district != ''">
+			AND address LIKE CONCAT('%', #{district}, '%')
+		</if>
+	</select>
 
     <insert id="upsertPlace">
         INSERT INTO places (
-            id, name, category, original_category_code, address,
+            name, category, original_category_code, address,
             latitude, longitude, tour_api_id, content_type_id,
             operating_hours, description, image_url, is_active, synced_at
         ) VALUES (
-            UUID(), #{name}, #{category}, #{originalCategoryCode}, #{address},
+            #{name}, #{category}, #{originalCategoryCode}, #{address},
             #{latitude}, #{longitude}, #{tourApiId}, #{contentTypeId},
             #{operatingHours}, #{description}, #{imageUrl}, 1, NOW()
         )

@@ -18,11 +18,13 @@ public interface PlaceMapper {
 
     List<Place> findAll(@Param("category") String category,
                         @Param("keyword") String keyword,
+                        @Param("district") String district,
                         @Param("offset") int offset,
                         @Param("limit") int limit);
 
     int countAll(@Param("category") String category,
-                 @Param("keyword") String keyword);
+                 @Param("keyword") String keyword,
+                 @Param("district") String district);
 
     void upsertPlace(Place place);
 
