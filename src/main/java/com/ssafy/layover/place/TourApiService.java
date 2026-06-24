@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 @Slf4j
 @Service
@@ -43,7 +41,6 @@ public class TourApiService {
     
     private final RestTemplate restTemplate;
     private final PlaceMapper placeMapper;
-    private final ConcurrentMap<String, Map<String, Object>> responseCache = new ConcurrentHashMap<>();
 
     public PlaceSyncResult syncPlaces() {
         int savedCount = 0;
@@ -125,7 +122,7 @@ public class TourApiService {
         	String encodedKey = URLEncoder.encode(serviceKey, StandardCharsets.UTF_8);
         	String url = BASE_URL + "/detailCommon2?serviceKey=" + encodedKey
                     + "&MobileOS=ETC&MobileApp=Layover&_type=json"
-                    + "&contentId=" + contentId + "&overviewYN=Y";
+                    + "&contentId=" + contentId;
             List<Map<String, Object>> items = extractItems(getAsMap(url));
             return items.isEmpty() ? "" : strVal(items.get(0), "overview");
         } catch (Exception e) {
@@ -174,17 +171,8 @@ public class TourApiService {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private Map<String, Object> getAsMap(String url) {
-        Map<String, Object> cached = responseCache.get(url);
-        if (cached != null) {
-            return cached;
-        }
-
         Map raw = restTemplate.getForObject(url, Map.class);
-        Map<String, Object> fetched = raw != null ? (Map<String, Object>) raw : Map.of();
-        if (!fetched.isEmpty()) {
-            responseCache.putIfAbsent(url, fetched);
-        }
-        return fetched;
+        return raw != null ? (Map<String, Object>) raw : Map.of();
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

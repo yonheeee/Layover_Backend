@@ -40,9 +40,10 @@ public class PlaceController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPlaces(
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String district,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "30") int size) {
-    	return ResponseEntity.ok(ApiResponse.success(placeService.getPlaces(category, keyword, page, size)));
+    	return ResponseEntity.ok(ApiResponse.success(placeService.getPlaces(category, keyword, district, page, size)));
     }
 
     @GetMapping("/{id}")
