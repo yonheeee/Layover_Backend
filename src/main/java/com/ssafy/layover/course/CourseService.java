@@ -4,6 +4,7 @@ import com.ssafy.layover.bus.BusService;
 import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
+import com.ssafy.layover.place.StationPlaceSeeder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,7 +16,7 @@ import java.util.stream.Collectors;
 public class CourseService {
 
     private static final int RECOMMENDED_COURSE_COUNT = 3;
-    private static final int FALLBACK_PICK_ATTEMPTS = 80;
+    private static final int FALLBACK_PICK_ATTEMPTS = 15;
     private static final String[] FALLBACK_TITLES = {"빠른 코스", "여유 코스", "딱 맞는 코스"};
 
     private final PlaceMapper placeMapper;
@@ -87,15 +88,18 @@ public class CourseService {
 
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
         int placeCount = placeCountFor(req.getDurationMinutes());
+        candidates = filterCandidatesByStationRadius(candidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
         Random rng = new Random();
-        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
 
         List<CourseResponse> results = new ArrayList<>();
         List<AiCourseClient.AiCoursePlan> aiPlans =
                 aiCourseClient.recommendCourses(req, candidates, placeCount, RECOMMENDED_COURSE_COUNT, List.of());
+        if (aiCourseClient.isBlocked()) {
+            throw new IllegalStateException("AI 코스 추천 호출에 실패했습니다.");
+        }
         for (int i = 0; i < aiPlans.size() && results.size() < RECOMMENDED_COURSE_COUNT; i++) {
             List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
-            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation(), transportCache)) {
+            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation())) {
                 results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation()));
             }
         }
@@ -111,8 +115,7 @@ public class CourseService {
                     targetMinRatio(index),
                     targetMaxRatio(index),
                     List.of(),
-                    req.getDepartureStation(),
-                    transportCache
+                    req.getDepartureStation()
             );
             results.add(buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
         }
@@ -129,7 +132,7 @@ public class CourseService {
                 ? req.getCurrentPlaces().size()
                 : placeCountFor(req.getDurationMinutes());
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
-        Map<String, TransportInfoResponse> transportCache = new HashMap<>();
+        candidates = filterCandidatesByStationRadius(candidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
 
         List<String> lockedPlaceIds = req.getCurrentPlaces() == null
                 ? List.of()
@@ -141,11 +144,14 @@ public class CourseService {
 
         List<AiCourseClient.AiCoursePlan> aiPlans =
                 aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds);
+        if (aiCourseClient.isBlocked()) {
+            throw new IllegalStateException("AI 코스 추천 호출에 실패했습니다.");
+        }
         List<Place> aiPicked = aiPlans.isEmpty()
                 ? List.of()
                 : placesByIds(aiPlans.get(0).placeIds(), candidates, placeCount);
 
-        if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation(), transportCache)) {
+        if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation())) {
             aiPicked = pickTimeAware(
                     candidates,
                     placeCount,
@@ -155,22 +161,123 @@ public class CourseService {
                     0.70,
                     0.85,
                     lockedPlaceIds,
-                    req.getDepartureStation(),
-                    transportCache
+                    req.getDepartureStation()
             );
         }
 
         List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
-        merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation(), transportCache);
+        merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation());
         String title = aiPlans.isEmpty() ? "AI 재추천 코스" : aiPlans.get(0).title();
         return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation());
+    }
+
+    public CourseResponse recalculateCourse(CourseRecalculateRequest req) {
+        if (req.getPlaceIds() == null || req.getPlaceIds().isEmpty()) {
+            return buildResponse(0, req.getTitle() == null ? "편집 코스" : req.getTitle(),
+                    List.of(), req.getTravelMode(), req.getDepartureStation());
+        }
+
+        List<Place> places = req.getPlaceIds().stream()
+                .filter(Objects::nonNull)
+                .filter(id -> !isStationPlaceId(id))
+                .map(placeMapper::findById)
+                .filter(Objects::nonNull)
+                .toList();
+
+        String title = req.getTitle() == null || req.getTitle().isBlank()
+                ? "편집 코스"
+                : req.getTitle();
+        return buildResponse(0, title, places, req.getTravelMode(), req.getDepartureStation(), true);
     }
 
     private List<Place> selectCandidates(List<String> themeTags) {
         if (themeTags == null || themeTags.isEmpty()) {
             return placeMapper.findAllWithLocation();
         }
-        return placeMapper.findByCategoryIn(themeTags);
+        List<String> categories = expandThemeTags(themeTags);
+        return categories.isEmpty()
+                ? placeMapper.findAllWithLocation()
+                : placeMapper.findByCategoryIn(categories);
+    }
+
+    private List<String> expandThemeTags(List<String> themeTags) {
+        Set<String> categories = new LinkedHashSet<>();
+        for (String rawTag : themeTags) {
+            if (rawTag == null || rawTag.isBlank()) continue;
+            String tag = rawTag.trim().toUpperCase(Locale.ROOT);
+            switch (tag) {
+                case "FOOD" -> categories.add("FOOD");
+                case "CAFE" -> {
+                    categories.add("CAFE");
+                    categories.add("FOOD");
+                }
+                case "NATURE" -> {
+                    categories.add("NATURE");
+                    categories.add("TOUR");
+                    categories.add("LEPORTS");
+                }
+                case "TOUR" -> categories.add("TOUR");
+                case "CULTURE" -> categories.add("CULTURE");
+                case "SHOPPING" -> categories.add("SHOPPING");
+                case "FESTIVAL" -> categories.add("FESTIVAL");
+                case "LEPORTS" -> categories.add("LEPORTS");
+                default -> categories.add(tag);
+            }
+        }
+        return new ArrayList<>(categories);
+    }
+
+    private List<Place> filterCandidatesByStationRadius(List<Place> candidates, String departureStation,
+                                                        int durationMinutes, int placeCount, String travelMode) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+
+        Place station = stationPlace(departureStation);
+        double radiusKm = radiusKmFor(durationMinutes, "WALK".equalsIgnoreCase(travelMode));
+        List<Place> sortedByStationDistance = candidates.stream()
+                .filter(this::hasLocation)
+                .sorted(Comparator.comparingDouble(place -> distanceFromStation(station, place)))
+                .toList();
+
+        List<Place> withinRadius = sortedByStationDistance.stream()
+                .filter(place -> distanceFromStation(station, place) <= radiusKm)
+                .toList();
+
+        int minimumNeeded = Math.max(placeCount * RECOMMENDED_COURSE_COUNT, 8);
+        if (withinRadius.size() >= Math.min(minimumNeeded, sortedByStationDistance.size())) {
+            return withinRadius;
+        }
+        if (withinRadius.size() >= Math.max(placeCount, 2)) {
+            return withinRadius;
+        }
+        return sortedByStationDistance.isEmpty() ? candidates : sortedByStationDistance;
+    }
+
+    private boolean hasLocation(Place place) {
+        return place != null && place.getLatitude() != null && place.getLongitude() != null;
+    }
+
+    private double distanceFromStation(Place station, Place place) {
+        if (!hasLocation(station) || !hasLocation(place)) {
+            return Double.MAX_VALUE;
+        }
+        return haversine(
+                station.getLatitude().doubleValue(),
+                station.getLongitude().doubleValue(),
+                place.getLatitude().doubleValue(),
+                place.getLongitude().doubleValue()
+        );
+    }
+
+    private double radiusKmFor(int durationMinutes, boolean walkOnly) {
+        if (walkOnly) {
+            if (durationMinutes <= 180) return 2.0;
+            if (durationMinutes <= 300) return 4.0;
+            return 6.0;
+        }
+
+        if (durationMinutes <= 180) return 3.0;
+        if (durationMinutes <= 300) return 7.0;
+        return 12.0;
     }
 
     private int placeCountFor(int durationMinutes) {
@@ -188,8 +295,7 @@ public class CourseService {
     private List<Place> pickTimeAware(List<Place> pool, int count, Random rng, String travelMode,
                                       int durationMinutes, double minRatio, double maxRatio,
                                       List<String> requiredPlaceIds,
-                                      String departureStation,
-                                      Map<String, TransportInfoResponse> transportCache) {
+                                      String departureStation) {
         if (pool == null || pool.isEmpty()) return List.of();
 
         int targetMin = (int) Math.floor(durationMinutes * minRatio);
@@ -210,7 +316,7 @@ public class CourseService {
                 }
             }
 
-            int minutes = estimateTotalMinutes(picked, travelMode, departureStation, transportCache);
+            int minutes = estimateTotalMinutes(picked, travelMode, departureStation);
             if (minutes <= durationMinutes) {
                 int score = minutes >= targetMin && minutes <= targetMax
                         ? 0
@@ -228,7 +334,7 @@ public class CourseService {
         if (!bestUnderLimit.isEmpty()) {
             return bestUnderLimit;
         }
-        return trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation, transportCache);
+        return trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation);
     }
 
     private List<Place> placesByIds(List<String> ids, List<Place> candidates, int limit) {
@@ -292,8 +398,7 @@ public class CourseService {
 
     private boolean isValidCourse(List<Place> places, int placeCount, String travelMode, int durationMinutes,
                                   List<String> requiredPlaceIds,
-                                  String departureStation,
-                                  Map<String, TransportInfoResponse> transportCache) {
+                                  String departureStation) {
         if (places == null || places.isEmpty()) return false;
         if (places.size() < Math.max(1, placeCount)) return false;
 
@@ -312,17 +417,16 @@ public class CourseService {
             }
         }
 
-        return estimateTotalMinutes(places, travelMode, departureStation, transportCache) <= durationMinutes;
+        return estimateTotalMinutes(places, travelMode, departureStation) <= durationMinutes;
     }
 
     private List<Place> trimToFit(List<Place> places, String travelMode, int durationMinutes,
                                   List<String> lockedPlaceIds,
-                                  String departureStation,
-                                  Map<String, TransportInfoResponse> transportCache) {
+                                  String departureStation) {
         List<Place> result = new ArrayList<>(places == null ? List.of() : places);
         Set<String> locked = lockedPlaceIds == null ? Set.of() : new HashSet<>(lockedPlaceIds);
 
-        while (result.size() > 1 && estimateTotalMinutes(result, travelMode, departureStation, transportCache) > durationMinutes) {
+        while (result.size() > 1 && estimateTotalMinutes(result, travelMode, departureStation) > durationMinutes) {
             int removableIndex = -1;
             for (int i = result.size() - 1; i >= 0; i--) {
                 Place place = result.get(i);
@@ -337,52 +441,79 @@ public class CourseService {
         return result;
     }
 
-    private int estimateTotalMinutes(List<Place> places, String travelMode, String departureStation,
-                                     Map<String, TransportInfoResponse> transportCache) {
+    private int estimateTotalMinutes(List<Place> places, String travelMode, String departureStation) {
         if (places == null || places.isEmpty()) return 0;
         int total = 0;
         Place station = stationPlace(departureStation);
-        total += travelMinutes(station, places.get(0), travelMode, transportCache);
+        total += estimateTravelMinutes(station, places.get(0), travelMode);
 
         for (int i = 0; i < places.size(); i++) {
             Place cur = places.get(i);
             total += parseMin(stayTimeFor(cur.getCategory()));
 
             if (i < places.size() - 1) {
-                total += travelMinutes(cur, places.get(i + 1), travelMode, transportCache);
+                total += estimateTravelMinutes(cur, places.get(i + 1), travelMode);
             }
         }
-        total += travelMinutes(places.get(places.size() - 1), station, travelMode, transportCache);
+        total += estimateTravelMinutes(places.get(places.size() - 1), station, travelMode);
         return total;
     }
 
-    private int travelMinutes(Place from, Place to, String travelMode, Map<String, TransportInfoResponse> transportCache) {
-        TransportInfoResponse transport = cachedTransport(from, to, transportCache);
-        boolean isWalk = "WALK".equals(travelMode);
-        return parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
+    private int estimateTravelMinutes(Place from, Place to, String travelMode) {
+        if (from.getLatitude() == null || from.getLongitude() == null
+                || to.getLatitude() == null || to.getLongitude() == null) {
+            return "WALK".equals(travelMode) ? 20 : 10;
+        }
+
+        double dist = haversine(
+                from.getLatitude().doubleValue(),
+                from.getLongitude().doubleValue(),
+                to.getLatitude().doubleValue(),
+                to.getLongitude().doubleValue()
+        );
+        return "WALK".equals(travelMode)
+                ? Math.max(3, (int) Math.ceil(dist / 4.0 * 60))
+                : Math.max(3, (int) Math.ceil(dist / 28.0 * 60));
     }
 
-    private TransportInfoResponse cachedTransport(Place from, Place to, Map<String, TransportInfoResponse> cache) {
-        String key = from.getId() + "->" + to.getId();
-        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to));
+    private TransportInfoResponse cachedTransport(Place from, Place to, String travelMode, Map<String, TransportInfoResponse> cache) {
+        String key = travelMode + ":" + from.getId() + "->" + to.getId();
+        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to, travelMode));
+    }
+
+    private TransportInfoResponse cachedTransport(Place from, Place to, String travelMode,
+                                                  Map<String, TransportInfoResponse> cache,
+                                                  boolean calculateAllTmapModes) {
+        String key = travelMode + ":" + calculateAllTmapModes + ":" + from.getId() + "->" + to.getId();
+        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to, travelMode, calculateAllTmapModes));
     }
 
     private Place stationPlace(String departureStation) {
         String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase(Locale.ROOT);
         Place station = new Place();
-        if (normalized.contains("SEO") || normalized.contains("SEODDAEJEON") || normalized.contains("서대전")) {
-            station.setId("__STATION_SEODDAEJEON__");
+        if (normalized.contains("SINTANJIN") || normalized.contains("신탄진")) {
+            station.setId(StationPlaceSeeder.SINTANJIN_STATION_ID);
+            station.setName("신탄진역");
+            station.setLatitude(BigDecimal.valueOf(36.4518));
+            station.setLongitude(BigDecimal.valueOf(127.4297));
+        } else if (normalized.contains("SEO") || normalized.contains("SEODAEJEON")
+                || normalized.contains("SEODDAEJEON") || normalized.contains("서대전")) {
+            station.setId(StationPlaceSeeder.SEODAEJEON_STATION_ID);
             station.setName("서대전역");
             station.setLatitude(BigDecimal.valueOf(36.3226));
             station.setLongitude(BigDecimal.valueOf(127.4039));
         } else {
-            station.setId("__STATION_DAEJEON__");
+            station.setId(StationPlaceSeeder.DAEJEON_STATION_ID);
             station.setName("대전역");
             station.setLatitude(BigDecimal.valueOf(36.3325));
             station.setLongitude(BigDecimal.valueOf(127.4348));
         }
         station.setCategory("STATION");
         return station;
+    }
+
+    private boolean isStationPlaceId(String id) {
+        return id != null && (id.startsWith("__STATION") || id.startsWith("STATION_"));
     }
 
     private int normalizedDuration(int durationMinutes) {
@@ -410,16 +541,24 @@ public class CourseService {
     }
 
     private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode, String departureStation) {
+        return buildResponse(index, title, places, travelMode, departureStation, false);
+    }
+
+    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode,
+                                         String departureStation, boolean calculateAllTmapModes) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
         Map<String, TransportInfoResponse> transportCache = new HashMap<>();
         Place station = stationPlace(departureStation);
 
+        TransportInfoResponse departureTransport = null;
+        TransportInfoResponse returnTransport = null;
         if (!places.isEmpty()) {
-            TransportInfoResponse departureTransport = cachedTransport(station, places.get(0), transportCache);
+            departureTransport = cachedTransport(station, places.get(0), travelMode, transportCache, calculateAllTmapModes);
             totalMinutes += parseMin("WALK".equals(travelMode) ? departureTransport.getWalkTime() : departureTransport.getTaxiTime());
             if (!"WALK".equals(travelMode)) totalFare += departureTransport.getTaxiFare();
+            stops.add(new CourseStopResponse(station, "0분", departureTransport, travelMode));
         }
 
         for (int i = 0; i < places.size(); i++) {
@@ -429,18 +568,23 @@ public class CourseService {
 
             TransportInfoResponse transport = null;
             if (i < places.size() - 1) {
-                transport = calcTransport(cur, places.get(i + 1));
+                transport = cachedTransport(cur, places.get(i + 1), travelMode, transportCache, calculateAllTmapModes);
                 boolean isWalk = "WALK".equals(travelMode);
                 totalMinutes += parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
                 if (!isWalk) totalFare += transport.getTaxiFare();
+            }
+            if (i == places.size() - 1) {
+                returnTransport = cachedTransport(cur, station, travelMode, transportCache, calculateAllTmapModes);
+                boolean isWalk = "WALK".equals(travelMode);
+                totalMinutes += parseMin(isWalk ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
+                if (!isWalk) totalFare += returnTransport.getTaxiFare();
+                transport = returnTransport;
             }
             stops.add(new CourseStopResponse(cur, stayTime, transport, travelMode));
         }
 
         if (!places.isEmpty()) {
-            TransportInfoResponse returnTransport = cachedTransport(places.get(places.size() - 1), station, transportCache);
-            totalMinutes += parseMin("WALK".equals(travelMode) ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
-            if (!"WALK".equals(travelMode)) totalFare += returnTransport.getTaxiFare();
+            stops.add(new CourseStopResponse(station, "0분", null, travelMode));
         }
 
         String subTitle = places.stream().map(Place::getName).collect(Collectors.joining(" → "));
@@ -454,7 +598,11 @@ public class CourseService {
         );
     }
 
-    private TransportInfoResponse calcTransport(Place from, Place to) {
+    private TransportInfoResponse calcTransport(Place from, Place to, String travelMode) {
+        return calcTransport(from, to, travelMode, false);
+    }
+
+    private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllTmapModes) {
         if (from.getLatitude() == null || from.getLongitude() == null
                 || to.getLatitude() == null || to.getLongitude() == null) {
             return new TransportInfoResponse("20분", "15분", "10분", 5000);
@@ -463,12 +611,23 @@ public class CourseService {
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
         double dist = haversine(fLat, fLng, tLat, tLng);
 
-        int walkTmap = tMapApiClient.getWalkMinutes(fLat, fLng, tLat, tLng);
-        int walkMin = walkTmap > 0 ? walkTmap : (int) Math.round(dist / 4.0 * 60);
+        int estimatedWalkMin = Math.max(3, (int) Math.ceil(dist / 4.0 * 60));
+        int estimatedTaxiMin = Math.max(3, (int) Math.ceil(dist / 28.0 * 60));
+        int estimatedFare = 3800 + (int) (dist * 800);
 
-        int[] carInfo = tMapApiClient.getCarRouteInfo(fLat, fLng, tLat, tLng);
-        int taxiMin = carInfo[0] > 0 ? carInfo[0] : Math.max(3, (int) Math.round(dist / 30.0 * 60));
-        int fare    = carInfo[1] > 0 ? carInfo[1] : 3800 + (int) (dist * 800);
+        int walkMin = estimatedWalkMin;
+        int taxiMin = estimatedTaxiMin;
+        int fare = estimatedFare;
+
+        if (calculateAllTmapModes || "WALK".equals(travelMode)) {
+            int walkTmap = tMapApiClient.getWalkMinutes(fLat, fLng, tLat, tLng);
+            walkMin = walkTmap > 0 ? walkTmap : estimatedWalkMin;
+        }
+        if (calculateAllTmapModes || !"WALK".equals(travelMode)) {
+            int[] carInfo = tMapApiClient.getCarRouteInfo(fLat, fLng, tLat, tLng);
+            taxiMin = carInfo[0] > 0 ? carInfo[0] : estimatedTaxiMin;
+            fare = carInfo[1] > 0 ? carInfo[1] : estimatedFare;
+        }
 
         int busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
 

@@ -12,11 +12,14 @@ import org.springframework.stereotype.Component;
 public class PlaceSyncScheduler {
 
     private final TourApiService tourApiService;
+    private final StationPlaceSeeder stationPlaceSeeder;
 
     @Scheduled(cron = "0 0 2 1 * *")
     public void syncPlaces() {
         log.info("[PlaceSyncScheduler] 관광지 자동 동기화 시작");
+        stationPlaceSeeder.upsertStations();
         PlaceSyncResult result = tourApiService.syncPlaces();
-        log.info("[PlaceSyncScheduler] 완료 — 저장: {}, 실패: {}", result.getSavedCount(), result.getErrorCount());
+        stationPlaceSeeder.upsertStations();
+        log.info("[PlaceSyncScheduler] 완료 - 저장: {}, 실패: {}", result.getSavedCount(), result.getErrorCount());
     }
 }

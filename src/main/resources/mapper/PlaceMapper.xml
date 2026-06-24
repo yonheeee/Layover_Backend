@@ -25,6 +25,7 @@
     <select id="findAllWithLocation" resultMap="PlaceResultMap">
         SELECT * FROM places
         WHERE is_active = 1
+          AND category != 'STATION'
           AND latitude IS NOT NULL
           AND longitude IS NOT NULL
     </select>
@@ -32,6 +33,7 @@
     <select id="findByCategoryIn" resultMap="PlaceResultMap">
         SELECT * FROM places
         WHERE is_active = 1
+          AND category != 'STATION'
           AND category IN
           <foreach collection="categories" item="cat" open="(" separator="," close=")">
               #{cat}
@@ -43,6 +45,7 @@
     <select id="searchByKeyword" resultMap="PlaceResultMap">
         SELECT * FROM places
         WHERE is_active = 1
+          AND category != 'STATION'
           AND latitude IS NOT NULL
           <if test="keyword != null and keyword != ''">
               AND name LIKE CONCAT('%', #{keyword}, '%')
@@ -58,6 +61,7 @@
     <select id="findAll" resultMap="PlaceResultMap">
         SELECT * FROM places
         WHERE is_active = 1
+          AND category != 'STATION'
         <if test="category != null and category != ''">
             AND category = #{category}
         </if>
@@ -71,6 +75,7 @@
     <select id="countAll" resultType="int">
         SELECT COUNT(*) FROM places
         WHERE is_active = 1
+        AND category != 'STATION'
         <if test="category != null and category != ''">
             AND category = #{category}
         </if>
@@ -99,6 +104,33 @@
             description     = VALUES(description),
             image_url       = VALUES(image_url),
             synced_at       = NOW()
+    </insert>
+
+    <insert id="upsertStationPlace" parameterType="com.ssafy.layover.place.Place">
+        INSERT INTO places (
+            id, name, category, original_category_code, address,
+            latitude, longitude, tour_api_id, content_type_id,
+            operating_hours, description, image_url, is_active, synced_at
+        ) VALUES (
+            #{id}, #{name}, #{category}, #{originalCategoryCode}, #{address},
+            #{latitude}, #{longitude}, #{tourApiId}, #{contentTypeId},
+            #{operatingHours}, #{description}, #{imageUrl}, 1, NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            name                   = VALUES(name),
+            category               = VALUES(category),
+            original_category_code = VALUES(original_category_code),
+            address                = VALUES(address),
+            latitude               = VALUES(latitude),
+            longitude              = VALUES(longitude),
+            tour_api_id            = VALUES(tour_api_id),
+            content_type_id        = VALUES(content_type_id),
+            operating_hours        = VALUES(operating_hours),
+            description            = VALUES(description),
+            image_url              = VALUES(image_url),
+            is_active              = 1,
+            deleted_at             = NULL,
+            synced_at              = NOW()
     </insert>
 
 </mapper>

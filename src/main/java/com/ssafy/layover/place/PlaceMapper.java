@@ -25,4 +25,6 @@ public interface PlaceMapper {
                  @Param("keyword") String keyword);
 
     void upsertPlace(Place place);
+
+    void upsertStationPlace(Place place);
 }

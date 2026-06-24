@@ -29,6 +29,12 @@ public class CourseController {
         return ResponseEntity.ok(courseService.regenerateCourse(req));
     }
 
+    @PostMapping("/recalculate")
+    public ResponseEntity<CourseResponse> recalculateCourse(
+            @RequestBody CourseRecalculateRequest req) {
+        return ResponseEntity.ok(courseService.recalculateCourse(req));
+    }
+
     @PostMapping("/save")
     public ResponseEntity<ApiResponse<String>> saveCourse(
             @AuthenticationPrincipal String userId,

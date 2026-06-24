@@ -3,6 +3,7 @@ package com.ssafy.layover.course;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.layover.place.Place;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -16,12 +17,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+@Slf4j
 @Component
 public class AiCourseClient {
 
+    private static final int MAX_ATTEMPTS = 3;
+
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AtomicBoolean blocked = new AtomicBoolean(false);
 
     @Value("${ai.course.enabled:true}")
     private boolean enabled;
@@ -35,9 +41,12 @@ public class AiCourseClient {
     @Value("${ai.course.model:gpt-4o-mini}")
     private String model;
 
-    public AiCourseClient(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public AiCourseClient(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-        this.objectMapper = objectMapper;
+    }
+
+    public boolean isBlocked() {
+        return blocked.get();
     }
 
     public List<AiCoursePlan> recommendCourses(
@@ -51,29 +60,44 @@ public class AiCourseClient {
             return List.of();
         }
 
-        try {
-            String prompt = buildPrompt(req, candidates, placeCount, courseCount, lockedPlaceIds);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("model", model);
-            body.put("temperature", 0.2);
-            body.put("messages", List.of(
-                    Map.of("role", "system", "content",
-                            "You are a strict Daejeon rail layover route optimizer. "
-                                    + "You must obey time, locked-place, and candidate-id constraints. "
-                                    + "Return only valid JSON. Do not include markdown."),
-                    Map.of("role", "user", "content", prompt)
-            ));
-            body.put("response_format", Map.of("type", "json_object"));
-
-            String response = restTemplate.postForObject(baseUrl, new HttpEntity<>(body, headers), String.class);
-            return parsePlans(response, courseCount, placeCount, candidates);
-        } catch (Exception e) {
+        if (blocked.get()) {
+            log.warn("[AI Course] 실패했습니다 - 이전 코스 추천 API 실패로 추가 호출을 차단합니다.");
             return List.of();
+        }
+
+        String prompt = buildPrompt(req, candidates, placeCount, courseCount, lockedPlaceIds);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("temperature", 0.2);
+        body.put("messages", List.of(
+                Map.of("role", "system", "content",
+                        "You are a strict Daejeon rail layover route optimizer. "
+                                + "You must obey time, locked-place, and candidate-id constraints. "
+                                + "Return only valid JSON. Do not include markdown."),
+                Map.of("role", "user", "content", prompt)
+        ));
+        body.put("response_format", Map.of("type", "json_object"));
+
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                String response = restTemplate.postForObject(baseUrl, new HttpEntity<>(body, headers), String.class);
+                return parsePlans(response, courseCount, placeCount, candidates);
+            } catch (Exception e) {
+                log.warn("[AI Course] 코스 추천 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
+            }
+        }
+
+        blockFurtherCalls();
+        return List.of();
+    }
+
+    private void blockFurtherCalls() {
+        if (blocked.compareAndSet(false, true)) {
+            log.error("[AI Course] 실패했습니다 - 코스 추천 API {}회 시도 실패로 추가 호출을 차단합니다.", MAX_ATTEMPTS);
         }
     }
 
@@ -85,6 +109,8 @@ public class AiCourseClient {
             List<String> lockedPlaceIds
     ) {
         StringBuilder sb = new StringBuilder();
+        double maxRadiusKm = radiusKmForPrompt(req.getDurationMinutes(), "WALK".equalsIgnoreCase(req.getTravelMode()));
+        double[] stationCoordinate = stationCoordinate(req.getDepartureStation());
         sb.append("Task: recommend Daejeon layover travel courses.\n");
         sb.append("Return JSON only. No markdown, no comments, no extra text.\n");
         sb.append("Required JSON schema: {\"courses\":[{\"title\":\"Korean course title\",\"placeIds\":[\"id1\",\"id2\"]}]}\n");
@@ -97,6 +123,8 @@ public class AiCourseClient {
         sb.append("5. Prefer currently open places. Avoid closed places unless there are no good alternatives.\n");
         sb.append("6. If locked place ids are provided, every returned course must include all locked ids.\n");
         sb.append("7. Keep route order geographically reasonable for a short rail layover and finish near enough to return safely.\n");
+        sb.append("8. Candidate places are pre-filtered by station radius. Prefer closer candidates first. Current radius limit: ")
+                .append(String.format("%.1f", maxRadiusKm)).append("km from the departure station.\n");
         sb.append("\n");
         sb.append("Stay-time estimates to use:\n");
         sb.append("- FOOD: 60 minutes\n");
@@ -134,6 +162,10 @@ public class AiCourseClient {
                 .forEach(place -> sb.append("- id=").append(place.getId())
                         .append(", name=").append(place.getName())
                         .append(", category=").append(place.getCategory())
+                        .append(", lat=").append(place.getLatitude())
+                        .append(", lng=").append(place.getLongitude())
+                        .append(", stationDistanceKm=")
+                        .append(String.format("%.2f", distanceKm(stationCoordinate[0], stationCoordinate[1], place)))
                         .append(", address=").append(nullToEmpty(place.getAddress()))
                         .append(", open=").append(place.isCurrentlyOpen())
                         .append("\n"));
@@ -188,9 +220,51 @@ public class AiCourseClient {
         return value == null ? "" : value;
     }
 
+    private double radiusKmForPrompt(int durationMinutes, boolean walkOnly) {
+        if (walkOnly) {
+            if (durationMinutes <= 180) return 2.0;
+            if (durationMinutes <= 300) return 4.0;
+            return 6.0;
+        }
+
+        if (durationMinutes <= 180) return 3.0;
+        if (durationMinutes <= 300) return 7.0;
+        return 12.0;
+    }
+
+    private double[] stationCoordinate(String departureStation) {
+        String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase();
+        if (normalized.contains("SINTANJIN") || normalized.contains("신탄진")) {
+            return new double[]{36.4518, 127.4297};
+        }
+        if (normalized.contains("SEO") || normalized.contains("SEODAEJEON") || normalized.contains("SEODDAEJEON")
+                || normalized.contains("서대전")) {
+            return new double[]{36.3226, 127.4039};
+        }
+        return new double[]{36.3325, 127.4348};
+    }
+
+    private double distanceKm(double stationLat, double stationLng, Place place) {
+        if (place.getLatitude() == null || place.getLongitude() == null) {
+            return 999.0;
+        }
+        double lat1 = Math.toRadians(stationLat);
+        double lat2 = Math.toRadians(place.getLatitude().doubleValue());
+        double dLat = Math.toRadians(place.getLatitude().doubleValue() - stationLat);
+        double dLng = Math.toRadians(place.getLongitude().doubleValue() - stationLng);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(lat1) * Math.cos(lat2)
+                * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return 6371.0 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
     private String stationCoordinateHint(String departureStation) {
         String normalized = departureStation == null ? "" : departureStation.trim().toUpperCase();
-        if (normalized.contains("SEO") || normalized.contains("SEODDAEJEON") || normalized.contains("서대전")) {
+        if (normalized.contains("SINTANJIN") || normalized.contains("신탄진")) {
+            return "Sintanjin Station lat=36.4518, lng=127.4297";
+        }
+        if (normalized.contains("SEO") || normalized.contains("SEODAEJEON") || normalized.contains("SEODDAEJEON")
+                || normalized.contains("서대전")) {
             return "Seo-Daejeon Station lat=36.3226, lng=127.4039";
         }
         return "Daejeon Station lat=36.3325, lng=127.4348";

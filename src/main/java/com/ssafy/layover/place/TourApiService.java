@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 @Slf4j
 @Service
@@ -41,6 +43,7 @@ public class TourApiService {
     
     private final RestTemplate restTemplate;
     private final PlaceMapper placeMapper;
+    private final ConcurrentMap<String, Map<String, Object>> responseCache = new ConcurrentHashMap<>();
 
     public PlaceSyncResult syncPlaces() {
         int savedCount = 0;
@@ -171,8 +174,17 @@ public class TourApiService {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private Map<String, Object> getAsMap(String url) {
+        Map<String, Object> cached = responseCache.get(url);
+        if (cached != null) {
+            return cached;
+        }
+
         Map raw = restTemplate.getForObject(url, Map.class);
-        return raw != null ? (Map<String, Object>) raw : Map.of();
+        Map<String, Object> fetched = raw != null ? (Map<String, Object>) raw : Map.of();
+        if (!fetched.isEmpty()) {
+            responseCache.putIfAbsent(url, fetched);
+        }
+        return fetched;
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
