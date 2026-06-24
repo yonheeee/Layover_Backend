@@ -5,6 +5,7 @@ import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
 import com.ssafy.layover.place.StationPlaceSeeder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class CourseService {
 
@@ -81,44 +83,72 @@ public class CourseService {
     }
 
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
-        List<Place> candidates = selectCandidates(req.getThemeTags());
-        if (candidates.size() < 2) {
-            candidates = placeMapper.findAllWithLocation();
+        List<Place> allCandidates = selectCandidates(req.getThemeTags());
+        if (allCandidates.size() < 2) {
+            allCandidates = placeMapper.findAllWithLocation();
         }
 
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
-        int placeCount = placeCountFor(req.getDurationMinutes());
-        candidates = filterCandidatesByStationRadius(candidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
+        int extendedDuration = durationMinutes + 60;
+        int placeCount = placeCountFor(durationMinutes);
+        int extendedPlaceCount = placeCountFor(extendedDuration);
+
+        List<Place> candidates = filterCandidatesByStationRadius(
+                allCandidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
+        List<Place> extendedCandidates = filterCandidatesByStationRadius(
+                allCandidates, req.getDepartureStation(), extendedDuration, extendedPlaceCount, req.getTravelMode());
         Random rng = new Random();
 
         List<CourseResponse> results = new ArrayList<>();
-        List<AiCourseClient.AiCoursePlan> aiPlans =
-                aiCourseClient.recommendCourses(req, candidates, placeCount, RECOMMENDED_COURSE_COUNT, List.of());
+        List<List<Place>> addedPlaceLists = new ArrayList<>();
+
+        List<AiCourseClient.AiCoursePlan> aiPlans = aiCourseClient.recommendCourses(
+                req, candidates, extendedCandidates, placeCount, extendedPlaceCount, RECOMMENDED_COURSE_COUNT, List.of());
         if (aiCourseClient.isBlocked()) {
             throw new IllegalStateException("AI 코스 추천 호출에 실패했습니다.");
         }
-        for (int i = 0; i < aiPlans.size() && results.size() < RECOMMENDED_COURSE_COUNT; i++) {
+
+        // 코스 1, 2: 표준 예산 + 카테고리 제약 + 코스 간 중복 방지
+        for (int i = 0; i < Math.min(2, aiPlans.size()) && addedPlaceLists.size() < 2; i++) {
             List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
-            if (isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation())) {
+            boolean isValid = isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation());
+            boolean categoryOK = isValid && hasValidCategoryConstraints(picked);
+            boolean distinct = categoryOK && isDistinctFrom(picked, addedPlaceLists);
+            log.info("[Course] AI 플랜 {} 검증 - isValid:{} categoryOK:{} distinct:{} picked:{}",
+                    i, isValid, categoryOK, distinct, picked.stream().map(p -> p.getName() + "/" + p.getCategory()).toList());
+            if (isValid && categoryOK && distinct) {
                 results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation()));
+                addedPlaceLists.add(new ArrayList<>(picked));
             }
         }
 
-        while (results.size() < RECOMMENDED_COURSE_COUNT) {
-            int index = results.size();
-            List<Place> picked = pickTimeAware(
-                    candidates,
-                    placeCount,
-                    rng,
-                    req.getTravelMode(),
-                    durationMinutes,
-                    targetMinRatio(index),
-                    targetMaxRatio(index),
-                    List.of(),
-                    req.getDepartureStation()
-            );
-            results.add(buildResponse(index, FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
+        // 코스 1, 2 폴백
+        while (addedPlaceLists.size() < 2) {
+            int index = addedPlaceLists.size();
+            log.info("[Course] 코스 {}: AI 플랜 통과 실패, 폴백 진입", index);
+            List<Place> picked = pickCategoryAware(candidates, placeCount, rng, req.getTravelMode(), durationMinutes,
+                    targetMinRatio(index), targetMaxRatio(index), List.of(), req.getDepartureStation(), addedPlaceLists);
+            results.add(buildResponse(results.size(), FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
+            addedPlaceLists.add(new ArrayList<>(picked));
         }
+
+        // 코스 3: 확장 예산 (durationMinutes + 60)
+        AiCourseClient.AiCoursePlan extendedPlan = aiPlans.size() >= 3 ? aiPlans.get(2) : null;
+        List<Place> extendedPicked = null;
+        if (extendedPlan != null) {
+            extendedPicked = placesByIds(extendedPlan.placeIds(), extendedCandidates, extendedPlaceCount);
+            if (!isValidCourse(extendedPicked, 1, req.getTravelMode(), extendedDuration, List.of(), req.getDepartureStation())) {
+                extendedPicked = null;
+            }
+        }
+        if (extendedPicked == null || extendedPicked.isEmpty()) {
+            extendedPicked = pickTimeAware(extendedCandidates, extendedPlaceCount, rng, req.getTravelMode(),
+                    extendedDuration, 0.80, 0.95, List.of(), req.getDepartureStation());
+        }
+        String extendedTitle = (extendedPlan != null && extendedPlan.title() != null && !extendedPlan.title().isBlank())
+                ? extendedPlan.title() : FALLBACK_TITLES[2];
+        results.add(buildResponse(2, extendedTitle, extendedPicked, req.getTravelMode(), req.getDepartureStation()));
+
         return results;
     }
 
@@ -281,8 +311,8 @@ public class CourseService {
     }
 
     private int placeCountFor(int durationMinutes) {
-        if (durationMinutes <= 60)  return 2;
-        if (durationMinutes <= 120) return 3;
+        if (durationMinutes <= 90)  return 2;
+        if (durationMinutes <= 210) return 3;
         return 4;
     }
 
@@ -334,7 +364,9 @@ public class CourseService {
         if (!bestUnderLimit.isEmpty()) {
             return bestUnderLimit;
         }
-        return trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation);
+        log.warn("[Course] pickTimeAware 폴백 발동: {}번 시도 전부 실패, pickRandom으로 대체", FALLBACK_PICK_ATTEMPTS);
+        return removeCategoryViolations(
+                trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation));
     }
 
     private List<Place> placesByIds(List<String> ids, List<Place> candidates, int limit) {
@@ -471,9 +503,10 @@ public class CourseService {
                 to.getLatitude().doubleValue(),
                 to.getLongitude().doubleValue()
         );
+        // ×1.3 보정: Haversine 직선거리 대비 실제 도로 경로는 평균 1.3배 길므로
         return "WALK".equals(travelMode)
-                ? Math.max(3, (int) Math.ceil(dist / 4.0 * 60))
-                : Math.max(3, (int) Math.ceil(dist / 28.0 * 60));
+                ? Math.max(3, (int) Math.ceil(dist * 1.3 / 4.0 * 60))
+                : Math.max(3, (int) Math.ceil(dist * 1.3 / 28.0 * 60));
     }
 
     private TransportInfoResponse cachedTransport(Place from, Place to, String travelMode, Map<String, TransportInfoResponse> cache) {
@@ -486,6 +519,92 @@ public class CourseService {
                                                   boolean calculateAllTmapModes) {
         String key = travelMode + ":" + calculateAllTmapModes + ":" + from.getId() + "->" + to.getId();
         return cache.computeIfAbsent(key, ignored -> calcTransport(from, to, travelMode, calculateAllTmapModes));
+    }
+
+    private List<Place> removeCategoryViolations(List<Place> places) {
+        if (places == null) return List.of();
+        List<Place> result = new ArrayList<>();
+        for (Place place : places) {
+            List<Place> candidate = new ArrayList<>(result);
+            candidate.add(place);
+            if (hasValidCategoryConstraints(candidate)) {
+                result.add(place);
+            }
+        }
+        return result;
+    }
+
+    private boolean hasValidCategoryConstraints(List<Place> places) {
+        if (places == null) return true;
+        int foodCount = 0, cafeCount = 0;
+        String prevCategory = null;
+        for (Place p : places) {
+            String cat = p.getCategory() == null ? "" : p.getCategory();
+            if (cat.equals(prevCategory)) return false;
+            if ("FOOD".equals(cat) && ++foodCount > 1) return false;
+            if ("CAFE".equals(cat) && ++cafeCount > 2) return false;
+            prevCategory = cat;
+        }
+        return true;
+    }
+
+    private boolean isDistinctFrom(List<Place> course, List<List<Place>> existingCourses) {
+        if (existingCourses == null || existingCourses.isEmpty()) return true;
+        Set<String> courseIds = course.stream().map(Place::getId).collect(Collectors.toSet());
+        for (List<Place> existing : existingCourses) {
+            Set<String> existingIds = existing.stream().map(Place::getId).collect(Collectors.toSet());
+            long overlap = courseIds.stream().filter(existingIds::contains).count();
+            int minSize = Math.min(courseIds.size(), existingIds.size());
+            if (minSize > 0 && (double) overlap / minSize >= 0.5) return false;
+        }
+        return true;
+    }
+
+    private List<Place> pickCategoryAware(List<Place> pool, int count, Random rng, String travelMode,
+                                           int durationMinutes, double minRatio, double maxRatio,
+                                           List<String> requiredPlaceIds, String departureStation,
+                                           List<List<Place>> existingCourseLists) {
+        if (pool == null || pool.isEmpty()) return List.of();
+        int targetMin = (int) Math.floor(durationMinutes * minRatio);
+        int targetMax = (int) Math.ceil(durationMinutes * maxRatio);
+        List<Place> required = placesByIds(requiredPlaceIds, pool, count);
+        List<Place> bestUnderLimit = new ArrayList<>(required);
+        int bestScore = Integer.MAX_VALUE;
+
+        for (int attempt = 0; attempt < FALLBACK_PICK_ATTEMPTS; attempt++) {
+            List<Place> picked = new ArrayList<>(required);
+            List<Place> shuffled = new ArrayList<>(pool);
+            Collections.shuffle(shuffled, rng);
+
+            for (Place place : shuffled) {
+                if (picked.size() >= Math.min(count, pool.size())) break;
+                if (picked.stream().anyMatch(p -> p.getId().equals(place.getId()))) continue;
+                List<Place> candidate = new ArrayList<>(picked);
+                candidate.add(place);
+                if (hasValidCategoryConstraints(candidate)) {
+                    picked.add(place);
+                }
+            }
+
+            if (!isDistinctFrom(picked, existingCourseLists)) continue;
+
+            int minutes = estimateTotalMinutes(picked, travelMode, departureStation);
+            if (minutes <= durationMinutes) {
+                int score = minutes >= targetMin && minutes <= targetMax
+                        ? 0
+                        : Math.min(Math.abs(minutes - targetMin), Math.abs(minutes - targetMax));
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestUnderLimit = picked;
+                }
+                if (score == 0) return picked;
+            }
+        }
+
+        if (!bestUnderLimit.isEmpty()) return bestUnderLimit;
+        log.warn("[Course] pickCategoryAware 폴백 발동: {}번 시도 전부 실패, pickRandom으로 대체", FALLBACK_PICK_ATTEMPTS);
+        return removeCategoryViolations(
+                trimToFit(pickRandom(pool, count, rng), travelMode, durationMinutes, requiredPlaceIds, departureStation));
     }
 
     private Place stationPlace(String departureStation) {
