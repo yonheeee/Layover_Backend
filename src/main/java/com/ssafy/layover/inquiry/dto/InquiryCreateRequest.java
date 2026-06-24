@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Getter
 @NoArgsConstructor
 public class InquiryCreateRequest {
@@ -13,4 +15,6 @@ public class InquiryCreateRequest {
 
     @NotBlank
     private String content;
+
+    private List<String> attachmentUrls;
 }

@@ -11,18 +11,19 @@
     </resultMap>
 
     <resultMap id="InquiryDetailResultMap" type="com.ssafy.layover.inquiry.dto.InquiryDetailResponse">
-        <result column="id"          property="id"/>
-        <result column="title"       property="title"/>
-        <result column="content"     property="content"/>
-        <result column="status"      property="status"/>
-        <result column="answer"      property="answer"/>
-        <result column="created_at"  property="createdAt"/>
-        <result column="answered_at" property="answeredAt"/>
+        <result column="id"              property="id"/>
+        <result column="title"           property="title"/>
+        <result column="content"         property="content"/>
+        <result column="status"          property="status"/>
+        <result column="answer"          property="answer"/>
+        <result column="created_at"      property="createdAt"/>
+        <result column="answered_at"     property="answeredAt"/>
+        <result column="attachment_urls" property="attachmentUrlsStr"/>
     </resultMap>
 
     <insert id="insert">
-        INSERT INTO inquiries (id, user_id, title, content)
-        VALUES (#{id}, #{userId}, #{title}, #{content})
+        INSERT INTO inquiries (id, user_id, title, content, attachment_urls)
+        VALUES (#{id}, #{userId}, #{title}, #{content}, #{attachmentUrls})
     </insert>
 
     <select id="findByUserId" resultMap="InquiryListResultMap">
@@ -33,7 +34,7 @@
     </select>
 
     <select id="findByIdAndUserId" resultMap="InquiryDetailResultMap">
-        SELECT id, title, content, status, answer, created_at, answered_at
+        SELECT id, title, content, status, answer, created_at, answered_at, attachment_urls
         FROM inquiries
         WHERE id = #{id}
           AND user_id = #{userId}

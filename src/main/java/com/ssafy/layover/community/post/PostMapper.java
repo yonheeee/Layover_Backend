@@ -23,10 +23,12 @@ public interface PostMapper {
 
     void insert(@Param("id") String id,
                 @Param("userId") String userId,
-                @Param("req") PostCreateRequest req);
+                @Param("req") PostCreateRequest req,
+                @Param("thumbnailUrl") String thumbnailUrl);
 
     void update(@Param("id") String id,
-                @Param("req") PostUpdateRequest req);
+                @Param("req") PostUpdateRequest req,
+                @Param("thumbnailUrl") String thumbnailUrl);
 
     void softDelete(@Param("id") String id);
 

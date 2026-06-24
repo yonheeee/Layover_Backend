@@ -3,6 +3,7 @@ package com.ssafy.layover.place;
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.place.dto.PlaceDetailResponse;
 import com.ssafy.layover.place.dto.PlaceListResponse;
+import com.ssafy.layover.place.dto.PlaceSyncResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,13 @@ import java.util.Map;
 public class PlaceController {
 
     private final PlaceService placeService;
+    private final TourApiService tourApiService;
+
+    @PostMapping("/sync")
+    public ResponseEntity<ApiResponse<PlaceSyncResult>> syncPlaces() {
+        PlaceSyncResult result = tourApiService.syncPlaces();
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 
     @GetMapping("/map-search")
     public ResponseEntity<List<DiPlaceResponse>> getMapPlaces() {

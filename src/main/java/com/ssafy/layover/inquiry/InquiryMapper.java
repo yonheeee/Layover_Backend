@@ -13,7 +13,8 @@ public interface InquiryMapper {
     void insert(@Param("id") String id,
                 @Param("userId") String userId,
                 @Param("title") String title,
-                @Param("content") String content);
+                @Param("content") String content,
+                @Param("attachmentUrls") String attachmentUrls);
 
     List<InquiryListResponse> findByUserId(@Param("userId") String userId);
 

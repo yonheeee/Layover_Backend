@@ -17,7 +17,10 @@ public class InquiryService {
     private final InquiryMapper inquiryMapper;
 
     public ApiResponse<Void> createInquiry(String userId, InquiryCreateRequest req) {
-        inquiryMapper.insert(UUID.randomUUID().toString(), userId, req.getTitle(), req.getContent());
+        String attachmentUrls = (req.getAttachmentUrls() == null || req.getAttachmentUrls().isEmpty())
+                ? null
+                : String.join(",", req.getAttachmentUrls());
+        inquiryMapper.insert(UUID.randomUUID().toString(), userId, req.getTitle(), req.getContent(), attachmentUrls);
         return ApiResponse.success("문의가 등록되었습니다.", null);
     }
 

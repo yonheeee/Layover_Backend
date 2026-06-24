@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +27,7 @@ public class PostService {
     private final CommentMapper commentMapper;
 
     private static final Set<String> ALLOWED_CATEGORIES = Set.of("SHARE", "QUESTION", "TOGETHER", "FREE");
+    private static final Pattern IMG_SRC_PATTERN = Pattern.compile("(?i)<img[^>]+src=[\"']([^\"']+)[\"']");
 
     public Map<String, Object> getPosts(String category, int page, int size) {
         int total = postMapper.countAll(category);
@@ -59,7 +62,8 @@ public class PostService {
         }
 
         String id = UUID.randomUUID().toString();
-        postMapper.insert(id, userId, req);
+        String thumbnailUrl = extractThumbnail(req.getContent());
+        postMapper.insert(id, userId, req, thumbnailUrl);
         PostDetailResponse post = postMapper.findById(id);
         if (post != null) {
             post.setComments(commentMapper.findByPostId(id));
@@ -81,7 +85,8 @@ public class PostService {
         if (!owner.equals(userId)) {
             return ApiResponse.fail("본인의 게시글만 수정할 수 있습니다.");
         }
-        postMapper.update(id, req);
+        String thumbnailUrl = extractThumbnail(req.getContent());
+        postMapper.update(id, req, thumbnailUrl);
         return ApiResponse.success("게시글이 수정되었습니다.", null);
     }
 
@@ -140,6 +145,12 @@ public class PostService {
             return "내용을 입력해주세요.";
         }
         return null;
+    }
+
+    private String extractThumbnail(String content) {
+        if (content == null) return null;
+        Matcher matcher = IMG_SRC_PATTERN.matcher(content);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     public List<MyPostResponse> getMyPosts(String userId) {
