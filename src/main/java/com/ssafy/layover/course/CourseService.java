@@ -738,19 +738,23 @@ public class CourseService {
         int taxiMin = estimatedTaxiMin;
         int fare = estimatedFare;
 
+        List<double[]> routePath = List.of();
+
         if (calculateAllTmapModes || "WALK".equals(travelMode)) {
-            int walkTmap = tMapApiClient.getWalkMinutes(fLat, fLng, tLat, tLng);
-            walkMin = walkTmap > 0 ? walkTmap : estimatedWalkMin;
+            TMapApiClient.WalkRouteResult walkResult = tMapApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
+            walkMin = walkResult.minutes() > 0 ? walkResult.minutes() : estimatedWalkMin;
+            if (!walkResult.path().isEmpty()) routePath = walkResult.path();
         }
         if (calculateAllTmapModes || !"WALK".equals(travelMode)) {
-            int[] carInfo = tMapApiClient.getCarRouteInfo(fLat, fLng, tLat, tLng);
-            taxiMin = carInfo[0] > 0 ? carInfo[0] : estimatedTaxiMin;
-            fare = carInfo[1] > 0 ? carInfo[1] : estimatedFare;
+            TMapApiClient.CarRouteResult carResult = tMapApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
+            taxiMin = carResult.minutes() > 0 ? carResult.minutes() : estimatedTaxiMin;
+            fare = carResult.taxiFare() > 0 ? carResult.taxiFare() : estimatedFare;
+            if (routePath.isEmpty() && !carResult.path().isEmpty()) routePath = carResult.path();
         }
 
         int busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
 
-        return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare);
+        return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare, routePath);
     }
 
     private double haversine(double lat1, double lon1, double lat2, double lon2) {

@@ -11,9 +11,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
@@ -22,67 +23,97 @@ public class TMapApiClient {
 
     private static final String WALK_URL = "https://apis.openapi.sk.com/tmap/routes/pedestrian?version=1";
     private static final String CAR_URL = "https://apis.openapi.sk.com/tmap/routes?version=1";
-    private static final int MAX_ATTEMPTS = 3;
 
     private final RestTemplate restTemplate;
-    private final AtomicBoolean blocked = new AtomicBoolean(false);
 
     @Value("${tmap.api.key:}")
     private String apiKey;
 
+    public record WalkRouteResult(int minutes, List<double[]> path) {
+        public static WalkRouteResult failed() { return new WalkRouteResult(-1, Collections.emptyList()); }
+    }
+
+    public record CarRouteResult(int minutes, int taxiFare, List<double[]> path) {
+        public static CarRouteResult failed() { return new CarRouteResult(-1, -1, Collections.emptyList()); }
+    }
+
+    public WalkRouteResult getWalkRouteResult(double fromLat, double fromLng, double toLat, double toLng) {
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("[TMap] API 키가 설정되지 않았습니다 (tmap.api.key)");
+            return WalkRouteResult.failed();
+        }
+        try {
+            log.info("[TMap] 도보경로 요청 ({},{}) → ({},{})", fromLat, fromLng, toLat, toLng);
+            Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
+            Map<?, ?> response = post(WALK_URL, body);
+            int totalSeconds = extractTotalTime(response);
+            int minutes = totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
+            List<double[]> path = extractPath(response);
+            log.info("[TMap] 도보경로 완료 — {}분, 좌표{}개", minutes, path.size());
+            return new WalkRouteResult(minutes, path);
+        } catch (Exception e) {
+            log.warn("[TMap] 도보 API 호출 실패: {}", e.getMessage());
+            return WalkRouteResult.failed();
+        }
+    }
+
+    public CarRouteResult getCarRouteResult(double fromLat, double fromLng, double toLat, double toLng) {
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("[TMap] API 키가 설정되지 않았습니다 (tmap.api.key)");
+            return CarRouteResult.failed();
+        }
+        try {
+            log.info("[TMap] 자동차경로 요청 ({},{}) → ({},{})", fromLat, fromLng, toLat, toLng);
+            Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
+            Map<?, ?> response = post(CAR_URL, body);
+            int totalSeconds = extractTotalTime(response);
+            int taxiFare = extractTaxiFare(response);
+            int minutes = totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
+            List<double[]> path = extractPath(response);
+            log.info("[TMap] 자동차경로 완료 — {}분, {}원, 좌표{}개", minutes, taxiFare, path.size());
+            return new CarRouteResult(minutes, taxiFare, path);
+        } catch (Exception e) {
+            log.warn("[TMap] 자동차 API 호출 실패: {}", e.getMessage());
+            return CarRouteResult.failed();
+        }
+    }
+
     public int getWalkMinutes(double fromLat, double fromLng, double toLat, double toLng) {
-        if (isBlocked("도보")) {
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("[TMap] API 키가 설정되지 않았습니다 (tmap.api.key)");
             return -1;
         }
-
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
-                Map<?, ?> response = post(WALK_URL, body);
-                int totalSeconds = extractTotalTime(response);
-                return totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
-            } catch (Exception e) {
-                log.warn("[TMap] 도보 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
-            }
+        try {
+            log.info("[TMap] 도보경로 요청 ({},{}) → ({},{})", fromLat, fromLng, toLat, toLng);
+            Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
+            Map<?, ?> response = post(WALK_URL, body);
+            int totalSeconds = extractTotalTime(response);
+            int minutes = totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
+            log.info("[TMap] 도보경로 완료 — {}분", minutes);
+            return minutes;
+        } catch (Exception e) {
+            log.warn("[TMap] 도보 API 호출 실패: {}", e.getMessage());
+            return -1;
         }
-
-        blockFurtherCalls("도보");
-        return -1;
     }
 
     public int[] getCarRouteInfo(double fromLat, double fromLng, double toLat, double toLng) {
-        if (isBlocked("자동차")) {
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("[TMap] API 키가 설정되지 않았습니다 (tmap.api.key)");
             return new int[]{-1, -1};
         }
-
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
-                Map<?, ?> response = post(CAR_URL, body);
-                int totalSeconds = extractTotalTime(response);
-                int taxiFare = extractTaxiFare(response);
-                int minutes = totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
-                return new int[]{minutes, taxiFare};
-            } catch (Exception e) {
-                log.warn("[TMap] 자동차 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
-            }
-        }
-
-        blockFurtherCalls("자동차");
-        return new int[]{-1, -1};
-    }
-
-    private boolean isBlocked(String apiName) {
-        if (!blocked.get()) {
-            return false;
-        }
-        log.warn("[TMap] 실패했습니다 - 이전 {} API 실패로 추가 호출을 차단합니다.", apiName);
-        return true;
-    }
-
-    private void blockFurtherCalls(String apiName) {
-        if (blocked.compareAndSet(false, true)) {
-            log.error("[TMap] 실패했습니다 - {} API {}회 시도 실패로 추가 호출을 차단합니다.", apiName, MAX_ATTEMPTS);
+        try {
+            log.info("[TMap] 자동차경로 요청 ({},{}) → ({},{})", fromLat, fromLng, toLat, toLng);
+            Map<String, Object> body = buildBody(fromLat, fromLng, toLat, toLng, "출발지", "도착지");
+            Map<?, ?> response = post(CAR_URL, body);
+            int totalSeconds = extractTotalTime(response);
+            int taxiFare = extractTaxiFare(response);
+            int minutes = totalSeconds > 0 ? (int) Math.ceil(totalSeconds / 60.0) : -1;
+            log.info("[TMap] 자동차경로 완료 — {}분, {}원", minutes, taxiFare);
+            return new int[]{minutes, taxiFare};
+        } catch (Exception e) {
+            log.warn("[TMap] 자동차 API 호출 실패: {}", e.getMessage());
+            return new int[]{-1, -1};
         }
     }
 
@@ -144,5 +175,33 @@ public class TMapApiClient {
             }
         }
         return 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<double[]> extractPath(Map<?, ?> response) {
+        if (response == null) return Collections.emptyList();
+        List<?> features = (List<?>) response.get("features");
+        if (features == null) return Collections.emptyList();
+
+        List<double[]> path = new ArrayList<>();
+        for (Object f : features) {
+            Map<?, ?> feature = (Map<?, ?>) f;
+            Map<?, ?> geometry = (Map<?, ?>) feature.get("geometry");
+            if (geometry == null) continue;
+            String type = (String) geometry.get("type");
+            if ("LineString".equals(type)) {
+                List<?> coords = (List<?>) geometry.get("coordinates");
+                if (coords == null) continue;
+                for (Object c : coords) {
+                    List<?> coord = (List<?>) c;
+                    if (coord.size() >= 2) {
+                        double lng = ((Number) coord.get(0)).doubleValue();
+                        double lat = ((Number) coord.get(1)).doubleValue();
+                        path.add(new double[]{lat, lng});
+                    }
+                }
+            }
+        }
+        return path;
     }
 }
