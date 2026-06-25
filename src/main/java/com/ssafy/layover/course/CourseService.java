@@ -19,7 +19,7 @@ public class CourseService {
 
     private static final int RECOMMENDED_COURSE_COUNT = 3;
     private static final int FALLBACK_PICK_ATTEMPTS = 15;
-    private static final String[] FALLBACK_TITLES = {"빠른 코스", "여유 코스", "딱 맞는 코스"};
+    private static final String[] FALLBACK_TITLES = {"추천 코스 A", "추천 코스 B", "플러스+1 코스"};
 
     private final PlaceMapper placeMapper;
     private final CourseMapper courseMapper;
@@ -117,7 +117,7 @@ public class CourseService {
             log.info("[Course] AI 플랜 {} 검증 - isValid:{} categoryOK:{} distinct:{} picked:{}",
                     i, isValid, categoryOK, distinct, picked.stream().map(p -> p.getName() + "/" + p.getCategory()).toList());
             if (isValid && categoryOK && distinct) {
-                results.add(buildResponse(results.size(), aiPlans.get(i).title(), picked, req.getTravelMode(), req.getDepartureStation()));
+                results.add(buildResponse(results.size(), safeTitle(aiPlans.get(i).title(), i), picked, req.getTravelMode(), req.getDepartureStation()));
                 addedPlaceLists.add(new ArrayList<>(picked));
             }
         }
@@ -146,7 +146,7 @@ public class CourseService {
                     extendedDuration, 0.80, 0.95, List.of(), req.getDepartureStation());
         }
         String extendedTitle = (extendedPlan != null && extendedPlan.title() != null && !extendedPlan.title().isBlank())
-                ? extendedPlan.title() : FALLBACK_TITLES[2];
+                ? safeTitle(extendedPlan.title(), 2) : FALLBACK_TITLES[2];
         results.add(buildResponse(2, extendedTitle, extendedPicked, req.getTravelMode(), req.getDepartureStation()));
 
         return results;
@@ -197,7 +197,7 @@ public class CourseService {
 
         List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
         merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation());
-        String title = aiPlans.isEmpty() ? "AI 재추천 코스" : aiPlans.get(0).title();
+        String title = aiPlans.isEmpty() ? "AI 재추천 코스" : safeTitle(aiPlans.get(0).title(), 0);
         return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation());
     }
 
@@ -788,5 +788,11 @@ public class CourseService {
     private String formatMin(int minutes) {
         int h = minutes / 60, m = minutes % 60;
         return h > 0 ? "약 " + h + "시간 " + m + "분" : "약 " + m + "분";
+    }
+    
+    private String safeTitle(String aiTitle, int index) {
+        if (aiTitle == null || aiTitle.isBlank()) return FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)];
+        boolean hasKorean = aiTitle.chars().anyMatch(c -> c >= 0xAC00 && c <= 0xD7A3);
+        return hasKorean ? aiTitle : FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)];
     }
 }
