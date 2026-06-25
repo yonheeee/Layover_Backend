@@ -1,5 +1,17 @@
 package com.ssafy.layover.login;
 
+import java.io.IOException;
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.login.dto.LoginRequest;
 import com.ssafy.layover.login.dto.LoginResponse;
@@ -7,13 +19,6 @@ import com.ssafy.layover.login.dto.LoginResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.view.RedirectView;
-
-import java.io.*;
-import java.net.URI;
-import java.util.*;
 
 @RestController
 @RequiredArgsConstructor
@@ -22,6 +27,9 @@ public class LoginController {
 
     private final LoginService loginService;
     private final KakaoLoginService kakaoLoginService;
+
+    @Value("${app.frontend-url}")  // properties에서 값 읽어옴
+    private String frontendUrl;
 
     @PostMapping
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
@@ -41,11 +49,11 @@ public class LoginController {
             String refreshToken = (String) result.get("refreshToken");
             boolean needsProfile = (boolean) result.get("needsProfile");
 
-            response.sendRedirect("http://localhost:5173/login?accessToken=" + accessToken
-                    + "&refreshToken=" + refreshToken
-                    + "&needsProfile=" + needsProfile);
+response.sendRedirect(frontendUrl + "/login?accessToken=" + accessToken
+        + "&refreshToken=" + refreshToken
+        + "&needsProfile=" + needsProfile);
         } catch (RuntimeException e) {
-            response.sendRedirect("http://localhost:5173/login?error=withdrawn");
+            response.sendRedirect(frontendUrl + "/login?error=withdrawn");
         }
     }
 }
