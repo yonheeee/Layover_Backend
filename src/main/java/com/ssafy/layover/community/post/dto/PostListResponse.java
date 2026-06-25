@@ -15,6 +15,7 @@ public class PostListResponse {
     private String username;
     private String category;
     private String title;
+    private String content;
     private int viewCount;
     private int likeCount;
     private int commentCount;

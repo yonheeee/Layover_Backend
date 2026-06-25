@@ -28,6 +28,7 @@ public class PostService {
 
     private static final Set<String> ALLOWED_CATEGORIES = Set.of("SHARE", "QUESTION", "TOGETHER", "FREE");
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile("(?i)<img[^>]+src=[\"']([^\"']+)[\"']");
+    private static final Pattern JSON_URL_PATTERN = Pattern.compile("\"type\"\\s*:\\s*\"image\"[^}]*\"url\"\\s*:\\s*\"([^\"]+)\"");
 
     public Map<String, Object> getPosts(String category, int page, int size) {
         int total = postMapper.countAll(category);
@@ -149,8 +150,12 @@ public class PostService {
 
     private String extractThumbnail(String content) {
         if (content == null) return null;
-        Matcher matcher = IMG_SRC_PATTERN.matcher(content);
-        return matcher.find() ? matcher.group(1) : null;
+        // JSON 블록 배열 형식 우선: [{"type":"image","url":"..."}]
+        Matcher jsonMatcher = JSON_URL_PATTERN.matcher(content);
+        if (jsonMatcher.find()) return jsonMatcher.group(1);
+        // 레거시 HTML 형식 fallback: <img src="...">
+        Matcher htmlMatcher = IMG_SRC_PATTERN.matcher(content);
+        return htmlMatcher.find() ? htmlMatcher.group(1) : null;
     }
 
     public List<MyPostResponse> getMyPosts(String userId) {
