@@ -4,6 +4,7 @@ import com.ssafy.layover.character.Character;
 import com.ssafy.layover.character.CharacterMapper;
 import com.ssafy.layover.character.CharacterResponse;
 import com.ssafy.layover.character.UserCharacter;
+import com.ssafy.layover.common.exception.DuplicateException;
 import com.ssafy.layover.common.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,7 @@ public class StampService {
     @Transactional
     public StampResponse saveStamp(String userId, SaveStampRequest req) {
         if (stampMapper.existsByUserIdAndPlaceId(userId, req.getPlaceId())) {
-            throw new IllegalStateException("이미 스탬프를 획득한 장소입니다.");
+            throw new DuplicateException("이미 스탬프를 획득한 장소입니다.");
         }
 
         Stamp stamp = Stamp.create(userId, req.getPlaceId(), req.getPhotoUrl());
