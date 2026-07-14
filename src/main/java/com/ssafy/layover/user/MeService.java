@@ -1,6 +1,7 @@
 package com.ssafy.layover.user;
 
 import com.ssafy.layover.common.entity.User;
+import com.ssafy.layover.common.exception.DuplicateException;
 import com.ssafy.layover.common.repository.UserRepository;
 import com.ssafy.layover.login.KakaoLoginService;
 import com.ssafy.layover.user.dto.UserMeResponse;
@@ -26,7 +27,7 @@ public class MeService {
 
     public void updateNickname(String userId, String username) {
         if (userRepository.existsByUsername(username)) {
-            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+            throw new DuplicateException("이미 사용 중인 닉네임입니다.");
         }
         userRepository.updateUsername(userId, username);
     }

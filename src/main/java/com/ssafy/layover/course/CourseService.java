@@ -1,6 +1,8 @@
 package com.ssafy.layover.course;
 
 import com.ssafy.layover.bus.BusService;
+import com.ssafy.layover.common.exception.ExternalApiException;
+import com.ssafy.layover.common.exception.NotFoundException;
 import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
@@ -76,7 +78,7 @@ public class CourseService {
     public void deleteCourse(String userId, String courseId) {
         Course course = courseMapper.findByIdAndUserId(courseId, userId);
         if (course == null) {
-            throw new IllegalArgumentException("코스를 찾을 수 없거나 권한이 없습니다.");
+            throw new NotFoundException("코스를 찾을 수 없거나 권한이 없습니다.");
         }
         coursePlaceMapper.deleteByCourseId(courseId);
         courseMapper.deleteById(courseId);
@@ -105,7 +107,7 @@ public class CourseService {
         List<AiCourseClient.AiCoursePlan> aiPlans = aiCourseClient.recommendCourses(
                 req, candidates, extendedCandidates, placeCount, extendedPlaceCount, RECOMMENDED_COURSE_COUNT, List.of());
         if (aiCourseClient.isBlocked()) {
-            throw new IllegalStateException("AI 코스 추천 호출에 실패했습니다.");
+            throw new ExternalApiException("AI 코스 추천 호출에 실패했습니다.");
         }
 
         // 코스 1, 2: 표준 예산 + 카테고리 제약 + 코스 간 중복 방지
@@ -175,7 +177,7 @@ public class CourseService {
         List<AiCourseClient.AiCoursePlan> aiPlans =
                 aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds);
         if (aiCourseClient.isBlocked()) {
-            throw new IllegalStateException("AI 코스 추천 호출에 실패했습니다.");
+            throw new ExternalApiException("AI 코스 추천 호출에 실패했습니다.");
         }
         List<Place> aiPicked = aiPlans.isEmpty()
                 ? List.of()
