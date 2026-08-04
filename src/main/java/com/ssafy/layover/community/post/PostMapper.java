@@ -47,4 +47,6 @@ public interface PostMapper {
     int countAll(@Param("category") String category);
 
     List<MyPostResponse> findByUserId(@Param("userId") String userId);
+
+    List<PostListResponse> findPopularCourseShares(@Param("size") int size);
 }

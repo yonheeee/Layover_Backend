@@ -2,9 +2,11 @@ CREATE TABLE posts
 (
     id            CHAR(36)     NOT NULL DEFAULT (UUID()),
     user_id       CHAR(36)     NOT NULL,
+    course_id     CHAR(36)              NULL,
     category      VARCHAR(20)  NOT NULL,
     title         VARCHAR(200) NOT NULL,
     content       TEXT         NOT NULL,
+    thumbnail_url VARCHAR(500)          NULL,
     view_count    INT          NOT NULL DEFAULT 0,
     like_count    INT          NOT NULL DEFAULT 0,
     comment_count INT          NOT NULL DEFAULT 0,
@@ -12,7 +14,9 @@ CREATE TABLE posts
     updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at    DATETIME              NULL,
     PRIMARY KEY (id),
-    CONSTRAINT fk_posts_user FOREIGN KEY (user_id) REFERENCES users (id)
+    KEY idx_posts_course_id (course_id),
+    CONSTRAINT fk_posts_user FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT fk_posts_course FOREIGN KEY (course_id) REFERENCES courses (id) ON DELETE SET NULL
 );
 
 CREATE TABLE comments
