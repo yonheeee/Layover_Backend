@@ -3,7 +3,7 @@ package com.ssafy.layover.course;
 import com.ssafy.layover.bus.BusService;
 import com.ssafy.layover.common.exception.ExternalApiException;
 import com.ssafy.layover.common.exception.NotFoundException;
-import com.ssafy.layover.tmap.TMapApiClient;
+import com.ssafy.layover.kakao.KakaoRouteApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
 import com.ssafy.layover.place.StationPlaceSeeder;
@@ -27,18 +27,18 @@ public class CourseService {
     private final CourseMapper courseMapper;
     private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
-    private final TMapApiClient tMapApiClient;
+    private final KakaoRouteApiClient kakaoRouteApiClient;
     private final AiCourseClient aiCourseClient;
 
     public CourseService(PlaceMapper placeMapper, CourseMapper courseMapper,
                          CoursePlaceMapper coursePlaceMapper, BusService busService,
-                         TMapApiClient tMapApiClient,
+                         KakaoRouteApiClient kakaoRouteApiClient,
                          AiCourseClient aiCourseClient) {
         this.placeMapper = placeMapper;
         this.courseMapper = courseMapper;
         this.coursePlaceMapper = coursePlaceMapper;
         this.busService = busService;
-        this.tMapApiClient = tMapApiClient;
+        this.kakaoRouteApiClient = kakaoRouteApiClient;
         this.aiCourseClient = aiCourseClient;
     }
     @Transactional
@@ -518,9 +518,9 @@ public class CourseService {
 
     private TransportInfoResponse cachedTransport(Place from, Place to, String travelMode,
                                                   Map<String, TransportInfoResponse> cache,
-                                                  boolean calculateAllTmapModes) {
-        String key = travelMode + ":" + calculateAllTmapModes + ":" + from.getId() + "->" + to.getId();
-        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to, travelMode, calculateAllTmapModes));
+                                                  boolean calculateAllRouteModes) {
+        String key = travelMode + ":" + calculateAllRouteModes + ":" + from.getId() + "->" + to.getId();
+        return cache.computeIfAbsent(key, ignored -> calcTransport(from, to, travelMode, calculateAllRouteModes));
     }
 
     private List<Place> removeCategoryViolations(List<Place> places) {
@@ -666,7 +666,7 @@ public class CourseService {
     }
 
     private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode,
-                                         String departureStation, boolean calculateAllTmapModes) {
+                                         String departureStation, boolean calculateAllRouteModes) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
@@ -676,7 +676,7 @@ public class CourseService {
         TransportInfoResponse departureTransport = null;
         TransportInfoResponse returnTransport = null;
         if (!places.isEmpty()) {
-            departureTransport = cachedTransport(station, places.get(0), travelMode, transportCache, calculateAllTmapModes);
+            departureTransport = cachedTransport(station, places.get(0), travelMode, transportCache, calculateAllRouteModes);
             totalMinutes += parseMin("WALK".equals(travelMode) ? departureTransport.getWalkTime() : departureTransport.getTaxiTime());
             if (!"WALK".equals(travelMode)) totalFare += departureTransport.getTaxiFare();
             stops.add(new CourseStopResponse(station, "0분", departureTransport, travelMode));
@@ -689,13 +689,13 @@ public class CourseService {
 
             TransportInfoResponse transport = null;
             if (i < places.size() - 1) {
-                transport = cachedTransport(cur, places.get(i + 1), travelMode, transportCache, calculateAllTmapModes);
+                transport = cachedTransport(cur, places.get(i + 1), travelMode, transportCache, calculateAllRouteModes);
                 boolean isWalk = "WALK".equals(travelMode);
                 totalMinutes += parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
                 if (!isWalk) totalFare += transport.getTaxiFare();
             }
             if (i == places.size() - 1) {
-                returnTransport = cachedTransport(cur, station, travelMode, transportCache, calculateAllTmapModes);
+                returnTransport = cachedTransport(cur, station, travelMode, transportCache, calculateAllRouteModes);
                 boolean isWalk = "WALK".equals(travelMode);
                 totalMinutes += parseMin(isWalk ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
                 if (!isWalk) totalFare += returnTransport.getTaxiFare();
@@ -723,7 +723,7 @@ public class CourseService {
         return calcTransport(from, to, travelMode, false);
     }
 
-    private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllTmapModes) {
+    private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllRouteModes) {
         if (from.getLatitude() == null || from.getLongitude() == null
                 || to.getLatitude() == null || to.getLongitude() == null) {
             return new TransportInfoResponse("20분", "15분", "10분", 5000);
@@ -742,19 +742,23 @@ public class CourseService {
 
         List<double[]> routePath = List.of();
 
-        if (calculateAllTmapModes || "WALK".equals(travelMode)) {
-            TMapApiClient.WalkRouteResult walkResult = tMapApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
+        if (calculateAllRouteModes || "WALK".equals(travelMode)) {
+            KakaoRouteApiClient.WalkRouteResult walkResult = kakaoRouteApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
             walkMin = walkResult.minutes() > 0 ? walkResult.minutes() : estimatedWalkMin;
             if (!walkResult.path().isEmpty()) routePath = walkResult.path();
         }
-        if (calculateAllTmapModes || !"WALK".equals(travelMode)) {
-            TMapApiClient.CarRouteResult carResult = tMapApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
+        if (calculateAllRouteModes || !"WALK".equals(travelMode)) {
+            KakaoRouteApiClient.CarRouteResult carResult = kakaoRouteApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
             taxiMin = carResult.minutes() > 0 ? carResult.minutes() : estimatedTaxiMin;
             fare = carResult.taxiFare() > 0 ? carResult.taxiFare() : estimatedFare;
             if (routePath.isEmpty() && !carResult.path().isEmpty()) routePath = carResult.path();
         }
 
-        int busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+        KakaoRouteApiClient.PublicTransitRouteResult transitResult =
+                kakaoRouteApiClient.getPublicTransitRouteResult(fLat, fLng, tLat, tLng);
+        int busMin = transitResult.minutes() > 0
+                ? transitResult.minutes()
+                : busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
 
         return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare, routePath);
     }
