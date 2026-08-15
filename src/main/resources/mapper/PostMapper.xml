@@ -15,6 +15,10 @@
         <result column="comment_count" property="commentCount"/>
         <result column="created_at"    property="createdAt"/>
         <result column="thumbnail_url" property="thumbnailUrl"/>
+        <result column="course_id" property="courseId"/>
+        <result column="course_sub_title" property="courseSubTitle"/>
+        <result column="course_travel_mode" property="courseTravelMode"/>
+        <result column="course_duration_minutes" property="courseDurationMinutes"/>
     </resultMap>
 
     <resultMap id="PostDetailResultMap" type="com.ssafy.layover.community.post.dto.PostDetailResponse">
@@ -29,6 +33,10 @@
         <result column="comment_count" property="commentCount"/>
         <result column="created_at"    property="createdAt"/>
         <result column="updated_at"    property="updatedAt"/>
+        <result column="course_id" property="courseId"/>
+        <result column="course_sub_title" property="courseSubTitle"/>
+        <result column="course_travel_mode" property="courseTravelMode"/>
+        <result column="course_duration_minutes" property="courseDurationMinutes"/>
     </resultMap>
 
     <select id="findAll" resultMap="PostListResultMap">
@@ -42,9 +50,19 @@
                p.like_count,
                p.comment_count,
                p.created_at,
-               p.thumbnail_url
+               p.thumbnail_url,
+               p.course_id,
+               c.travel_mode AS course_travel_mode,
+               c.duration_minutes AS course_duration_minutes,
+               (
+                   SELECT GROUP_CONCAT(pl.name ORDER BY cp.order_index SEPARATOR ' → ')
+                   FROM course_places cp
+                   JOIN places pl ON cp.place_id = pl.id
+                   WHERE cp.course_id = p.course_id
+               ) AS course_sub_title
         FROM posts p
         JOIN users u ON p.user_id = u.id
+        LEFT JOIN courses c ON p.course_id = c.id
         WHERE p.deleted_at IS NULL
         <if test="category != null">
             AND p.category = #{category}
@@ -64,9 +82,19 @@
                p.like_count,
                p.comment_count,
                p.created_at,
-               p.updated_at
+               p.updated_at,
+               p.course_id,
+               c.travel_mode AS course_travel_mode,
+               c.duration_minutes AS course_duration_minutes,
+               (
+                   SELECT GROUP_CONCAT(pl.name ORDER BY cp.order_index SEPARATOR ' → ')
+                   FROM course_places cp
+                   JOIN places pl ON cp.place_id = pl.id
+                   WHERE cp.course_id = p.course_id
+               ) AS course_sub_title
         FROM posts p
         JOIN users u ON p.user_id = u.id
+        LEFT JOIN courses c ON p.course_id = c.id
         WHERE p.id = #{id}
           AND p.deleted_at IS NULL
     </select>
@@ -79,8 +107,8 @@
     </select>
 
     <insert id="insert">
-        INSERT INTO posts (id, user_id, category, title, content, thumbnail_url)
-        VALUES (#{id}, #{userId}, #{req.category}, #{req.title}, #{req.content}, #{thumbnailUrl})
+        INSERT INTO posts (id, user_id, category, title, content, thumbnail_url, course_id)
+        VALUES (#{id}, #{userId}, #{req.category}, #{req.title}, #{req.content}, #{thumbnailUrl}, NULLIF(#{req.courseId}, ''))
     </insert>
 
     <update id="update">
@@ -88,7 +116,8 @@
         SET title         = #{req.title},
             content       = #{req.content},
             category      = #{req.category},
-            thumbnail_url = #{thumbnailUrl}
+            thumbnail_url = #{thumbnailUrl},
+            course_id     = NULLIF(#{req.courseId}, '')
         WHERE id = #{id}
           AND deleted_at IS NULL
     </update>
@@ -162,6 +191,37 @@
         WHERE user_id = #{userId}
           AND deleted_at IS NULL
         ORDER BY created_at DESC
+    </select>
+
+    <select id="findPopularCourseShares" resultMap="PostListResultMap">
+        SELECT p.id,
+               p.user_id,
+               u.username,
+               p.category,
+               p.title,
+               p.content,
+               p.view_count,
+               p.like_count,
+               p.comment_count,
+               p.created_at,
+               p.thumbnail_url,
+               p.course_id,
+               c.travel_mode AS course_travel_mode,
+               c.duration_minutes AS course_duration_minutes,
+               (
+                   SELECT GROUP_CONCAT(pl.name ORDER BY cp.order_index SEPARATOR ' → ')
+                   FROM course_places cp
+                   JOIN places pl ON cp.place_id = pl.id
+                   WHERE cp.course_id = p.course_id
+               ) AS course_sub_title
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        JOIN courses c ON p.course_id = c.id
+        WHERE p.deleted_at IS NULL
+          AND p.category = 'SHARE'
+          AND p.course_id IS NOT NULL
+        ORDER BY p.like_count DESC, p.created_at DESC
+        LIMIT #{size}
     </select>
 
 </mapper>

@@ -25,5 +25,9 @@ public class PostDetailResponse {
     private int commentCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String courseId;
+    private String courseSubTitle;
+    private String courseTravelMode;
+    private Integer courseDurationMinutes;
     private List<CommentResponse> comments;
 }

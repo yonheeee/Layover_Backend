@@ -21,4 +21,8 @@ public class PostListResponse {
     private int commentCount;
     private LocalDateTime createdAt;
     private String thumbnailUrl;
+    private String courseId;
+    private String courseSubTitle;
+    private String courseTravelMode;
+    private Integer courseDurationMinutes;
 }

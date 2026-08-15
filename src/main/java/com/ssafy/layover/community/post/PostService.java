@@ -7,6 +7,7 @@ import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
 import com.ssafy.layover.community.post.dto.PostListResponse;
 import com.ssafy.layover.community.post.dto.PostUpdateRequest;
+import com.ssafy.layover.course.CourseMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class PostService {
 
     private final PostMapper postMapper;
     private final CommentMapper commentMapper;
+    private final CourseMapper courseMapper;
 
     private static final Set<String> ALLOWED_CATEGORIES = Set.of("SHARE", "QUESTION", "TOGETHER", "FREE");
     private static final Pattern IMG_SRC_PATTERN = Pattern.compile("(?i)<img[^>]+src=[\"']([^\"']+)[\"']");
@@ -61,6 +63,10 @@ public class PostService {
         if (validationMessage != null) {
             return ApiResponse.fail(validationMessage);
         }
+        String courseValidationMessage = validateCourseOwnership(userId, req == null ? null : req.getCourseId());
+        if (courseValidationMessage != null) {
+            return ApiResponse.fail(courseValidationMessage);
+        }
 
         String id = UUID.randomUUID().toString();
         String thumbnailUrl = extractThumbnail(req.getContent());
@@ -85,6 +91,10 @@ public class PostService {
         }
         if (!owner.equals(userId)) {
             return ApiResponse.fail("본인의 게시글만 수정할 수 있습니다.");
+        }
+        String courseValidationMessage = validateCourseOwnership(userId, req == null ? null : req.getCourseId());
+        if (courseValidationMessage != null) {
+            return ApiResponse.fail(courseValidationMessage);
         }
         String thumbnailUrl = extractThumbnail(req.getContent());
         postMapper.update(id, req, thumbnailUrl);
@@ -160,5 +170,20 @@ public class PostService {
 
     public List<MyPostResponse> getMyPosts(String userId) {
         return postMapper.findByUserId(userId);
+    }
+
+    public List<PostListResponse> getPopularCourseShares(int size) {
+        int normalizedSize = Math.max(1, Math.min(size, 10));
+        return postMapper.findPopularCourseShares(normalizedSize);
+    }
+
+    private String validateCourseOwnership(String userId, String courseId) {
+        if (courseId == null || courseId.isBlank()) {
+            return null;
+        }
+        if (courseMapper.findByIdAndUserId(courseId, userId) == null) {
+            return "본인이 저장한 코스만 연결할 수 있습니다.";
+        }
+        return null;
     }
 }

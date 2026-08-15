@@ -4,6 +4,7 @@ import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.community.post.dto.MyPostResponse;
 import com.ssafy.layover.community.post.dto.PostCreateRequest;
 import com.ssafy.layover.community.post.dto.PostDetailResponse;
+import com.ssafy.layover.community.post.dto.PostListResponse;
 import com.ssafy.layover.community.post.dto.PostUpdateRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +33,12 @@ public class PostController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         return ResponseEntity.ok(ApiResponse.success(postService.getPosts(category, page, size)));
+    }
+
+    @GetMapping("/popular-shares")
+    public ResponseEntity<ApiResponse<List<PostListResponse>>> getPopularCourseShares(
+            @RequestParam(defaultValue = "2") int size) {
+        return ResponseEntity.ok(ApiResponse.success(postService.getPopularCourseShares(size)));
     }
 
     @GetMapping("/{id}")
