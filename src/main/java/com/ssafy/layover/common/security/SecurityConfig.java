@@ -3,6 +3,7 @@ package com.ssafy.layover.common.security;
 import java.util.Arrays;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,6 +40,7 @@ public class SecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 .requestMatchers("/api/signup/**", "/api/login/**", "/api/find/**",
                         "/api/places/**", "/api/admin/**", "/api/courses/generate",
                         "/api/trains/**", "/uploads/**", "/api/auth/refresh").permitAll()

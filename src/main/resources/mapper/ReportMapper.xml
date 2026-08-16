@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.report.ReportMapper">
+
+    <resultMap id="ReportRawMap" type="com.ssafy.layover.report.dto.ReportRaw">
+        <result column="id" property="id"/>
+        <result column="reported_user_id" property="reportedUserId"/>
+        <result column="reported_username" property="reportedUsername"/>
+        <result column="encrypted_content" property="encryptedContent"/>
+        <result column="iv" property="iv"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO user_reports (id, reporter_id, reported_user_id, encrypted_content, iv)
+        VALUES (#{id}, #{reporterId}, #{reportedUserId}, #{encryptedContent}, #{iv})
+    </insert>
+
+    <select id="findByReporterId" resultMap="ReportRawMap">
+        SELECT r.id,
+               r.reported_user_id,
+               u.username AS reported_username,
+               r.encrypted_content,
+               r.iv,
+               r.status,
+               r.created_at
+        FROM user_reports r
+        JOIN users u ON r.reported_user_id = u.id
+        WHERE r.reporter_id = #{reporterId}
+        ORDER BY r.created_at DESC
+    </select>
+
+</mapper>

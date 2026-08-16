@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ssafy.layover.chat.ChatMapper">
+
+    <resultMap id="ChatRoomRawMap" type="com.ssafy.layover.chat.dto.ChatRoomRaw">
+        <result column="room_id" property="roomId"/>
+        <result column="other_user_id" property="otherUserId"/>
+        <result column="other_username" property="otherUsername"/>
+        <result column="other_profile_image" property="otherProfileImage"/>
+        <result column="last_message_encrypted_content" property="lastMessageEncryptedContent"/>
+        <result column="last_message_iv" property="lastMessageIv"/>
+        <result column="last_message_type" property="lastMessageType"/>
+        <result column="last_message_sender_id" property="lastMessageSenderId"/>
+        <result column="unread_count" property="unreadCount"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <resultMap id="ChatMessageRawMap" type="com.ssafy.layover.chat.dto.ChatMessageRaw">
+        <result column="id" property="id"/>
+        <result column="room_id" property="roomId"/>
+        <result column="sender_id" property="senderId"/>
+        <result column="sender_username" property="senderUsername"/>
+        <result column="type" property="type"/>
+        <result column="encrypted_content" property="encryptedContent"/>
+        <result column="iv" property="iv"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="findRoomByPair" resultType="string">
+        SELECT id
+        FROM chat_rooms
+        WHERE user_low_id = #{userLowId}
+          AND user_high_id = #{userHighId}
+    </select>
+
+    <insert id="insertRoom">
+        INSERT INTO chat_rooms (id, user_low_id, user_high_id)
+        VALUES (#{id}, #{userLowId}, #{userHighId})
+    </insert>
+
+    <insert id="insertParticipant">
+        INSERT INTO chat_room_participants (room_id, user_id)
+        VALUES (#{roomId}, #{userId})
+    </insert>
+
+    <select id="isParticipant" resultType="boolean">
+        SELECT COUNT(*) > 0
+        FROM chat_room_participants
+        WHERE room_id = #{roomId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="findParticipantUserIds" resultType="string">
+        SELECT user_id
+        FROM chat_room_participants
+        WHERE room_id = #{roomId}
+    </select>
+
+    <select id="findRoomsByUserId" resultMap="ChatRoomRawMap">
+        SELECT cr.id AS room_id,
+               other_user.id AS other_user_id,
+               other_user.username AS other_username,
+               other_user.profile_image AS other_profile_image,
+               lm.encrypted_content AS last_message_encrypted_content,
+               lm.iv AS last_message_iv,
+               lm.type AS last_message_type,
+               lm.sender_id AS last_message_sender_id,
+               (
+                   SELECT COUNT(*)
+                   FROM chat_messages unread
+                   WHERE unread.room_id = cr.id
+                     AND unread.sender_id != #{userId}
+                     AND unread.created_at > COALESCE(me.last_read_at, '1970-01-01')
+               ) AS unread_count,
+               cr.updated_at
+        FROM chat_room_participants me
+        JOIN chat_rooms cr ON me.room_id = cr.id
+        JOIN chat_room_participants other_participant
+          ON other_participant.room_id = cr.id
+         AND other_participant.user_id != #{userId}
+        JOIN users other_user ON other_user.id = other_participant.user_id
+        LEFT JOIN chat_messages lm
+          ON lm.id = (
+              SELECT latest.id
+              FROM chat_messages latest
+              WHERE latest.room_id = cr.id
+              ORDER BY latest.created_at DESC
+              LIMIT 1
+          )
+        WHERE me.user_id = #{userId}
+        ORDER BY cr.updated_at DESC
+    </select>
+
+    <select id="findMessages" resultMap="ChatMessageRawMap">
+        SELECT cm.id,
+               cm.room_id,
+               cm.sender_id,
+               u.username AS sender_username,
+               cm.type,
+               cm.encrypted_content,
+               cm.iv,
+               cm.created_at
+        FROM chat_messages cm
+        JOIN users u ON cm.sender_id = u.id
+        WHERE cm.room_id = #{roomId}
+        ORDER BY cm.created_at ASC
+    </select>
+
+    <select id="findMessageById" resultMap="ChatMessageRawMap">
+        SELECT cm.id,
+               cm.room_id,
+               cm.sender_id,
+               u.username AS sender_username,
+               cm.type,
+               cm.encrypted_content,
+               cm.iv,
+               cm.created_at
+        FROM chat_messages cm
+        JOIN users u ON cm.sender_id = u.id
+        WHERE cm.id = #{id}
+    </select>
+
+    <insert id="insertMessage">
+        INSERT INTO chat_messages (id, room_id, sender_id, type, encrypted_content, iv)
+        VALUES (#{id}, #{roomId}, #{senderId}, #{type}, #{encryptedContent}, #{iv})
+    </insert>
+
+    <update id="updateRoomTimestamp">
+        UPDATE chat_rooms
+        SET updated_at = NOW()
+        WHERE id = #{roomId}
+    </update>
+
+    <update id="updateLastReadAt">
+        UPDATE chat_room_participants
+        SET last_read_at = #{lastReadAt}
+        WHERE room_id = #{roomId}
+          AND user_id = #{userId}
+    </update>
+
+</mapper>
