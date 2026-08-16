@@ -30,11 +30,18 @@ public class BusApiClient {
     @Value("${daejeon.bus.api.key:}")
     private String serviceKey;
 
+    @Value("${route.bus-stop-estimation.enabled:false}")
+    private boolean enabled;
+
     // busStopId 기준 중복 제거
     private final Map<String, BusStop> stopCache = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void loadStops() {
+        if (!enabled) {
+            log.info("대전 버스 정류소 기반 추정이 비활성화되어 정류소 캐시를 로드하지 않습니다.");
+            return;
+        }
         if (serviceKey == null || serviceKey.isBlank()) {
             log.warn("대전 버스 API 키가 설정되지 않아 버스 정류소를 불러오지 않습니다.");
             return;

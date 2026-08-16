@@ -726,7 +726,7 @@ public class CourseService {
     private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllRouteModes) {
         if (from.getLatitude() == null || from.getLongitude() == null
                 || to.getLatitude() == null || to.getLongitude() == null) {
-            return new TransportInfoResponse("20분", "15분", "10분", 5000);
+            return new TransportInfoResponse("20분", "정보 없음", "10분", 5000);
         }
         double fLat = from.getLatitude().doubleValue(), fLng = from.getLongitude().doubleValue();
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
@@ -760,7 +760,8 @@ public class CourseService {
                 ? transitResult.minutes()
                 : busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
 
-        return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare, routePath);
+        String busTime = busMin > 0 ? busMin + "분" : "정보 없음";
+        return new TransportInfoResponse(walkMin + "분", busTime, taxiMin + "분", fare, routePath);
     }
 
     private double haversine(double lat1, double lon1, double lat2, double lon2) {

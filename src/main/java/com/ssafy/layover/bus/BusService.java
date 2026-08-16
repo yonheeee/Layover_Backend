@@ -1,6 +1,7 @@
 package com.ssafy.layover.bus;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -13,9 +14,15 @@ public class BusService {
 
     private final BusApiClient busApiClient;
 
+    @Value("${route.bus-stop-estimation.enabled:false}")
+    private boolean enabled;
+
     // 두 지점 사이 버스 이동시간 추정 (분)
     // 가장 가까운 버스 정류소까지 도보 + 버스 대기 + 버스 이동 + 도착지 도보
     public int estimateBusMinutes(double fromLat, double fromLng, double toLat, double toLng) {
+        if (!enabled) {
+            return -1;
+        }
         Optional<BusStop> fromStop = findNearestStop(fromLat, fromLng);
         Optional<BusStop> toStop   = findNearestStop(toLat, toLng);
 

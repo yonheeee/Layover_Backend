@@ -42,8 +42,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                 .requestMatchers("/api/signup/**", "/api/login/**", "/api/find/**",
-                        "/api/places/**", "/api/admin/**", "/api/courses/generate",
                         "/api/trains/**", "/uploads/**", "/api/auth/refresh").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/posts").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/posts/my").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
