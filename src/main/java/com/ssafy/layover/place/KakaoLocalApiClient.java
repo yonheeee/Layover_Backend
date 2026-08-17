@@ -34,7 +34,7 @@ public class KakaoLocalApiClient {
         }
 
         try {
-            String uri = UriComponentsBuilder.fromHttpUrl(KEYWORD_URL)
+            String uri = UriComponentsBuilder.fromUriString(KEYWORD_URL)
                     .queryParam("query", name)
                     .queryParam("x", longitude)
                     .queryParam("y", latitude)
