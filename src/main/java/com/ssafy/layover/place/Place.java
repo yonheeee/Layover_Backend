@@ -22,9 +22,20 @@ public class Place {
     private String tourApiId;
     private String contentTypeId;
     private String operatingHours;
+    private String restDate;
+    private String infoCenter;
+    private String parking;
+    private String useFee;
+    private String reservation;
     private String imageUrl;
     private Boolean active;          // is_active 컬럼
     private String description;
+    private String kakaoPlaceId;
+    private String kakaoPlaceUrl;
+    private String kakaoPhone;
+    private String roadAddress;
+    private String introRaw;
+    private String detailInfoRaw;
     private LocalDateTime deletedAt;
     private LocalDateTime syncedAt;
     private LocalDateTime createdAt;

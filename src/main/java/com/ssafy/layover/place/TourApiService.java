@@ -3,6 +3,7 @@ package com.ssafy.layover.place;
 import com.ssafy.layover.place.dto.PlaceSyncResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -41,6 +42,8 @@ public class TourApiService {
     
     private final RestTemplate restTemplate;
     private final PlaceMapper placeMapper;
+    private final KakaoLocalApiClient kakaoLocalApiClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PlaceSyncResult syncPlaces() {
         int savedCount = 0;
@@ -100,7 +103,9 @@ public class TourApiService {
         if (!mapy.isBlank()) place.setLatitude(new BigDecimal(mapy));
 
         place.setDescription(fetchDescription(contentId));
-        place.setOperatingHours(fetchOperatingHours(contentId, contentTypeId));
+        applyIntroDetails(place, contentId, contentTypeId);
+        place.setDetailInfoRaw(fetchDetailInfoRaw(contentId, contentTypeId));
+        applyKakaoLocalDetails(place);
 
         String imgUrl = fetchImage(contentId);
         if (!imgUrl.isBlank()) place.setImageUrl(imgUrl);
@@ -130,15 +135,38 @@ public class TourApiService {
         }
     }
 
-    private String fetchOperatingHours(String contentId, int contentTypeId) {
+    private void applyIntroDetails(Place place, String contentId, int contentTypeId) {
         try {
         	String encodedKey = URLEncoder.encode(serviceKey, StandardCharsets.UTF_8);
         	String url = BASE_URL + "/detailIntro2?serviceKey=" + encodedKey
                     + "&MobileOS=ETC&MobileApp=Layover&_type=json"
                     + "&contentId=" + contentId + "&contentTypeId=" + contentTypeId;
             List<Map<String, Object>> items = extractItems(getAsMap(url));
-            return items.isEmpty() ? "" : extractOperatingHours(items.get(0), contentTypeId);
+            if (items.isEmpty()) return;
+
+            Map<String, Object> intro = items.get(0);
+            place.setOperatingHours(extractOperatingHours(intro, contentTypeId));
+            place.setRestDate(extractRestDate(intro, contentTypeId));
+            place.setInfoCenter(extractInfoCenter(intro, contentTypeId));
+            place.setParking(extractParking(intro, contentTypeId));
+            place.setUseFee(extractUseFee(intro, contentTypeId));
+            place.setReservation(extractReservation(intro, contentTypeId));
+            place.setIntroRaw(toJson(intro));
         } catch (Exception e) {
+            log.debug("[TourAPI] detailIntro failed contentId={}: {}", contentId, e.getMessage());
+        }
+    }
+
+    private String fetchDetailInfoRaw(String contentId, int contentTypeId) {
+        try {
+            String encodedKey = URLEncoder.encode(serviceKey, StandardCharsets.UTF_8);
+            String url = BASE_URL + "/detailInfo2?serviceKey=" + encodedKey
+                    + "&MobileOS=ETC&MobileApp=Layover&_type=json"
+                    + "&contentId=" + contentId + "&contentTypeId=" + contentTypeId;
+            List<Map<String, Object>> items = extractItems(getAsMap(url));
+            return items.isEmpty() ? "" : toJson(items);
+        } catch (Exception e) {
+            log.debug("[TourAPI] detailInfo failed contentId={}: {}", contentId, e.getMessage());
             return "";
         }
     }
@@ -167,6 +195,84 @@ public class TourApiService {
             case 39 -> strVal(item, "opentimefood");
             default -> "";
         };
+    }
+
+    private String extractRestDate(Map<String, Object> item, int contentTypeId) {
+        return switch (contentTypeId) {
+            case 12 -> strVal(item, "restdate");
+            case 14 -> strVal(item, "restdateculture");
+            case 28 -> strVal(item, "restdateleports");
+            case 38 -> strVal(item, "restdateshopping");
+            case 39 -> strVal(item, "restdatefood");
+            default -> "";
+        };
+    }
+
+    private String extractInfoCenter(Map<String, Object> item, int contentTypeId) {
+        return switch (contentTypeId) {
+            case 12 -> strVal(item, "infocenter");
+            case 14 -> strVal(item, "infocenterculture");
+            case 15 -> strVal(item, "sponsor1tel").isBlank() ? strVal(item, "sponsor2tel") : strVal(item, "sponsor1tel");
+            case 28 -> strVal(item, "infocenterleports");
+            case 38 -> strVal(item, "infocentershopping");
+            case 39 -> strVal(item, "infocenterfood");
+            default -> "";
+        };
+    }
+
+    private String extractParking(Map<String, Object> item, int contentTypeId) {
+        return switch (contentTypeId) {
+            case 12 -> strVal(item, "parking");
+            case 14 -> strVal(item, "parkingculture");
+            case 28 -> strVal(item, "parkingleports");
+            case 32 -> strVal(item, "parkinglodging");
+            case 38 -> strVal(item, "parkingshopping");
+            case 39 -> strVal(item, "parkingfood");
+            default -> "";
+        };
+    }
+
+    private String extractUseFee(Map<String, Object> item, int contentTypeId) {
+        return switch (contentTypeId) {
+            case 12 -> strVal(item, "usefee");
+            case 14 -> strVal(item, "usefee");
+            case 15 -> strVal(item, "usetimefestival");
+            case 28 -> strVal(item, "usefeeleports");
+            case 39 -> firstNonBlank(strVal(item, "firstmenu"), strVal(item, "treatmenu"));
+            default -> "";
+        };
+    }
+
+    private String extractReservation(Map<String, Object> item, int contentTypeId) {
+        return switch (contentTypeId) {
+            case 12 -> strVal(item, "expguide");
+            case 28 -> strVal(item, "reservation");
+            case 32 -> strVal(item, "reservationlodging");
+            default -> "";
+        };
+    }
+
+    private void applyKakaoLocalDetails(Place place) {
+        Double lat = place.getLatitude() != null ? place.getLatitude().doubleValue() : null;
+        Double lng = place.getLongitude() != null ? place.getLongitude().doubleValue() : null;
+        kakaoLocalApiClient.findBestMatch(place.getName(), lat, lng).ifPresent(match -> {
+            place.setKakaoPlaceId(match.id());
+            place.setKakaoPlaceUrl(match.placeUrl());
+            place.setKakaoPhone(match.phone());
+            place.setRoadAddress(match.roadAddress());
+        });
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return first != null && !first.isBlank() ? first : second;
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

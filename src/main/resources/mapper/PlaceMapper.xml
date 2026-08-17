@@ -14,8 +14,19 @@
         <result column="tour_api_id"            property="tourApiId"/>
         <result column="content_type_id"        property="contentTypeId"/>
         <result column="operating_hours"        property="operatingHours"/>
+        <result column="rest_date"              property="restDate"/>
+        <result column="info_center"            property="infoCenter"/>
+        <result column="parking"                property="parking"/>
+        <result column="use_fee"                property="useFee"/>
+        <result column="reservation"            property="reservation"/>
         <result column="image_url"              property="imageUrl"/>
         <result column="description"            property="description"/>
+        <result column="kakao_place_id"         property="kakaoPlaceId"/>
+        <result column="kakao_place_url"        property="kakaoPlaceUrl"/>
+        <result column="kakao_phone"            property="kakaoPhone"/>
+        <result column="road_address"           property="roadAddress"/>
+        <result column="intro_raw"              property="introRaw"/>
+        <result column="detail_info_raw"        property="detailInfoRaw"/>
         <result column="is_active"              property="active"/>
         <result column="deleted_at"             property="deletedAt"/>
         <result column="synced_at"              property="syncedAt"/>
@@ -96,11 +107,15 @@
         INSERT INTO places (
             name, category, original_category_code, address,
             latitude, longitude, tour_api_id, content_type_id,
-            operating_hours, description, image_url, is_active, synced_at
+            operating_hours, rest_date, info_center, parking, use_fee, reservation,
+            description, image_url, kakao_place_id, kakao_place_url, kakao_phone,
+            road_address, intro_raw, detail_info_raw, is_active, synced_at
         ) VALUES (
             #{name}, #{category}, #{originalCategoryCode}, #{address},
             #{latitude}, #{longitude}, #{tourApiId}, #{contentTypeId},
-            #{operatingHours}, #{description}, #{imageUrl}, 1, NOW()
+            #{operatingHours}, #{restDate}, #{infoCenter}, #{parking}, #{useFee}, #{reservation},
+            #{description}, #{imageUrl}, #{kakaoPlaceId}, #{kakaoPlaceUrl}, #{kakaoPhone},
+            #{roadAddress}, #{introRaw}, #{detailInfoRaw}, 1, NOW()
         )
         ON DUPLICATE KEY UPDATE
             name            = VALUES(name),
@@ -109,8 +124,19 @@
             latitude        = VALUES(latitude),
             longitude       = VALUES(longitude),
             operating_hours = VALUES(operating_hours),
+            rest_date       = VALUES(rest_date),
+            info_center     = VALUES(info_center),
+            parking         = VALUES(parking),
+            use_fee         = VALUES(use_fee),
+            reservation     = VALUES(reservation),
             description     = VALUES(description),
             image_url       = VALUES(image_url),
+            kakao_place_id  = VALUES(kakao_place_id),
+            kakao_place_url = VALUES(kakao_place_url),
+            kakao_phone     = VALUES(kakao_phone),
+            road_address    = VALUES(road_address),
+            intro_raw       = VALUES(intro_raw),
+            detail_info_raw = VALUES(detail_info_raw),
             synced_at       = NOW()
     </insert>
 
@@ -118,11 +144,15 @@
         INSERT INTO places (
             id, name, category, original_category_code, address,
             latitude, longitude, tour_api_id, content_type_id,
-            operating_hours, description, image_url, is_active, synced_at
+            operating_hours, rest_date, info_center, parking, use_fee, reservation,
+            description, image_url, kakao_place_id, kakao_place_url, kakao_phone,
+            road_address, intro_raw, detail_info_raw, is_active, synced_at
         ) VALUES (
             #{id}, #{name}, #{category}, #{originalCategoryCode}, #{address},
             #{latitude}, #{longitude}, #{tourApiId}, #{contentTypeId},
-            #{operatingHours}, #{description}, #{imageUrl}, 1, NOW()
+            #{operatingHours}, #{restDate}, #{infoCenter}, #{parking}, #{useFee}, #{reservation},
+            #{description}, #{imageUrl}, #{kakaoPlaceId}, #{kakaoPlaceUrl}, #{kakaoPhone},
+            #{roadAddress}, #{introRaw}, #{detailInfoRaw}, 1, NOW()
         )
         ON DUPLICATE KEY UPDATE
             name                   = VALUES(name),
@@ -134,8 +164,19 @@
             tour_api_id            = VALUES(tour_api_id),
             content_type_id        = VALUES(content_type_id),
             operating_hours        = VALUES(operating_hours),
+            rest_date              = VALUES(rest_date),
+            info_center            = VALUES(info_center),
+            parking                = VALUES(parking),
+            use_fee                = VALUES(use_fee),
+            reservation            = VALUES(reservation),
             description            = VALUES(description),
             image_url              = VALUES(image_url),
+            kakao_place_id         = VALUES(kakao_place_id),
+            kakao_place_url        = VALUES(kakao_place_url),
+            kakao_phone            = VALUES(kakao_phone),
+            road_address           = VALUES(road_address),
+            intro_raw              = VALUES(intro_raw),
+            detail_info_raw        = VALUES(detail_info_raw),
             is_active              = 1,
             deleted_at             = NULL,
             synced_at              = NOW()
