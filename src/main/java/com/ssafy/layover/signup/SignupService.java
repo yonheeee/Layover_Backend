@@ -68,9 +68,6 @@ public class SignupService {
                 .build();
         userRepository.save(user);
         emailVerificationService.deleteVerification(request.getEmail());
-
-        // email_verifications 테이블은 JPA 자동 삭제 안됨. DB에서 수동 실행 필요:
-        // DROP TABLE email_verifications;
         return ApiResponse.success("회원가입이 완료되었습니다.", null);
     }
 }

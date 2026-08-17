@@ -23,12 +23,13 @@ public class TrainController {
     @GetMapping
     public ResponseEntity<List<TrainResponse>> getTrains(
             @RequestParam String station,
+            @RequestParam(defaultValue = "busan") String destination,
             @RequestParam(required = false) String date
     ) {
         String resolvedDate = (date != null && !date.isBlank())
                 ? date
                 : LocalDate.now().format(DATE_FMT);
 
-        return ResponseEntity.ok(trainService.getTrains(station, resolvedDate));
+        return ResponseEntity.ok(trainService.getTrains(station, destination, resolvedDate));
     }
 }

@@ -90,7 +90,8 @@ public class KorailApiClient {
                             toHhmm(item.trn_arvl_dt()),
                             item.arvl_stn_nm(),
                             item.dptre_stn_nm(),
-                            item.stn_nm()
+                            item.stn_nm(),
+                            null
                     ))
                     .filter(train -> train.trainNo() != null && !train.trainNo().isBlank())
                     .filter(train -> train.departTime() != null && !train.departTime().isBlank())
