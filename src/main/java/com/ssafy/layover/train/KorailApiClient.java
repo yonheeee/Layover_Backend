@@ -9,7 +9,12 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
@@ -17,14 +22,20 @@ public class KorailApiClient {
 
     private static final String BASE_URL =
             "https://openapis.korail.com/samples/public/call/run/travelerTrainRunInfo";
+    private static final Pattern DATE_PATTERN = Pattern.compile("\\d{8}");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<TrainResponse> fetchTrains(String stnNm, String date) {
+        if (date == null || !DATE_PATTERN.matcher(date).matches()) {
+            log.warn("코레일 API 요청 날짜 형식 오류: {}", date);
+            return List.of();
+        }
+
         try {
             String url = BASE_URL
-                    + "?cond%5Brun_ymd%3A%3AGTE%5D=20260101"
-                    + "&cond%5Brun_ymd%3A%3ALTE%5D=20261231"
+                    + "?cond%5Brun_ymd%3A%3AGTE%5D=" + date
+                    + "&cond%5Brun_ymd%3A%3ALTE%5D=" + date
                     + "&cond%5Bstn_nm%3A%3AEQ%5D=" + URLEncoder.encode(stnNm, StandardCharsets.UTF_8)
                     + "&numOfRows=100"
                     + "&pageNo=1";
@@ -72,6 +83,7 @@ public class KorailApiClient {
             }
 
             return root.response().body().items().item().stream()
+                    .filter(item -> isSameServiceDate(item.trn_dptre_dt(), date))
                     .map(item -> new TrainResponse(
                             item.trn_no(),
                             toHhmm(item.trn_dptre_dt()),
@@ -80,6 +92,17 @@ public class KorailApiClient {
                             item.dptre_stn_nm(),
                             item.stn_nm()
                     ))
+                    .filter(train -> train.trainNo() != null && !train.trainNo().isBlank())
+                    .filter(train -> train.departTime() != null && !train.departTime().isBlank())
+                    .collect(
+                            LinkedHashMap<String, TrainResponse>::new,
+                            (map, train) -> map.putIfAbsent(train.trainNo() + ":" + train.departTime(), train),
+                            Map::putAll
+                    )
+                    .values()
+                    .stream()
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(TrainResponse::departTime))
                     .toList();
 
         } catch (Exception e) {
@@ -92,6 +115,12 @@ public class KorailApiClient {
         if (datetime == null || !datetime.contains(" ")) return "";
         String timePart = datetime.split(" ")[1];
         return timePart.length() >= 5 ? timePart.substring(0, 5) : timePart;
+    }
+
+    private boolean isSameServiceDate(String datetime, String date) {
+        if (datetime == null || date == null || date.length() != 8) return false;
+        String normalizedDate = date.substring(0, 4) + "-" + date.substring(4, 6) + "-" + date.substring(6, 8);
+        return datetime.startsWith(normalizedDate) || datetime.startsWith(date);
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
