@@ -773,7 +773,8 @@ public class CourseService {
     private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllRouteModes) {
         if (from.getLatitude() == null || from.getLongitude() == null
                 || to.getLatitude() == null || to.getLongitude() == null) {
-            return new TransportInfoResponse("20분", "정보 없음", "10분", 5000);
+            return new TransportInfoResponse("정보 없음", "정보 없음", "정보 없음", 0, List.of(),
+                    "UNAVAILABLE", "UNAVAILABLE", "UNAVAILABLE", "UNAVAILABLE");
         }
         double fLat = from.getLatitude().doubleValue(), fLng = from.getLongitude().doubleValue();
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
@@ -788,27 +789,54 @@ public class CourseService {
         int fare = estimatedFare;
 
         List<double[]> routePath = List.of();
+        String walkSource = "ESTIMATED";
+        String taxiSource = "ESTIMATED";
+        String busSource = "UNAVAILABLE";
+        String routePathSource = "STRAIGHT_LINE";
 
         if (calculateAllRouteModes || "WALK".equals(travelMode)) {
             KakaoRouteApiClient.WalkRouteResult walkResult = kakaoRouteApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
-            walkMin = walkResult.minutes() > 0 ? walkResult.minutes() : estimatedWalkMin;
-            if (!walkResult.path().isEmpty()) routePath = walkResult.path();
+            if (walkResult.minutes() > 0) {
+                walkMin = walkResult.minutes();
+                walkSource = "KAKAO";
+            }
+            if (!walkResult.path().isEmpty()) {
+                routePath = walkResult.path();
+                routePathSource = "KAKAO";
+            }
         }
         if (calculateAllRouteModes || !"WALK".equals(travelMode)) {
             KakaoRouteApiClient.CarRouteResult carResult = kakaoRouteApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
-            taxiMin = carResult.minutes() > 0 ? carResult.minutes() : estimatedTaxiMin;
-            fare = carResult.taxiFare() > 0 ? carResult.taxiFare() : estimatedFare;
-            if (routePath.isEmpty() && !carResult.path().isEmpty()) routePath = carResult.path();
+            if (carResult.minutes() > 0) {
+                taxiMin = carResult.minutes();
+                taxiSource = "KAKAO_MOBILITY";
+            }
+            if (carResult.taxiFare() > 0) {
+                fare = carResult.taxiFare();
+                taxiSource = "KAKAO_MOBILITY";
+            }
+            if (routePath.isEmpty() && !carResult.path().isEmpty()) {
+                routePath = carResult.path();
+                routePathSource = "KAKAO_MOBILITY";
+            }
         }
 
         KakaoRouteApiClient.PublicTransitRouteResult transitResult =
                 kakaoRouteApiClient.getPublicTransitRouteResult(fLat, fLng, tLat, tLng);
-        int busMin = transitResult.minutes() > 0
-                ? transitResult.minutes()
-                : busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+        int busMin;
+        if (transitResult.minutes() > 0) {
+            busMin = transitResult.minutes();
+            busSource = "KAKAO";
+        } else {
+            busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+            if (busMin > 0) {
+                busSource = "BUS_STOP_ESTIMATE";
+            }
+        }
 
         String busTime = busMin > 0 ? busMin + "분" : "정보 없음";
-        return new TransportInfoResponse(walkMin + "분", busTime, taxiMin + "분", fare, routePath);
+        return new TransportInfoResponse(walkMin + "분", busTime, taxiMin + "분", fare, routePath,
+                walkSource, busSource, taxiSource, routePathSource);
     }
 
     private double haversine(double lat1, double lon1, double lat2, double lon2) {
