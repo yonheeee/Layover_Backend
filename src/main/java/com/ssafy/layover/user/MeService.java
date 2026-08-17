@@ -36,6 +36,10 @@ public class MeService {
         userRepository.updatePhone(userId, phone);
     }
 
+    public void updateProfileImage(String userId, String profileImage) {
+        userRepository.updateProfileImage(userId, normalizeProfileImage(profileImage));
+    }
+
     public void updatePassword(String userId, String currentPassword, String newPassword) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
@@ -57,5 +61,12 @@ public class MeService {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private String normalizeProfileImage(String profileImage) {
+        if (profileImage == null || profileImage.isBlank()) {
+            return null;
+        }
+        return profileImage.trim();
     }
 }
