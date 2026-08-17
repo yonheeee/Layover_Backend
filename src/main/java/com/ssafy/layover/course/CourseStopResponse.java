@@ -41,7 +41,7 @@ public class CourseStopResponse {
         this.transportTime = nextTransport != null
                 ? (isWalk ? nextTransport.getWalkTime() : nextTransport.getTaxiTime())
                 : null;
-        this.taxiFare = (nextTransport != null && !isWalk)
+        this.taxiFare = (nextTransport != null && !isWalk && nextTransport.getTaxiFare() > 0)
                 ? String.format("%,d원", nextTransport.getTaxiFare())
                 : null;
     }

@@ -21,6 +21,7 @@ public class CourseService {
 
     private static final int RECOMMENDED_COURSE_COUNT = 3;
     private static final int FALLBACK_PICK_ATTEMPTS = 15;
+    private static final int RECOMMENDED_RETURN_BUFFER_MINUTES = 30;
     private static final String[] FALLBACK_TITLES = {"추천 코스 A", "추천 코스 B", "플러스+1 코스"};
 
     private final PlaceMapper placeMapper;
@@ -119,7 +120,8 @@ public class CourseService {
             log.info("[Course] AI 플랜 {} 검증 - isValid:{} categoryOK:{} distinct:{} picked:{}",
                     i, isValid, categoryOK, distinct, picked.stream().map(p -> p.getName() + "/" + p.getCategory()).toList());
             if (isValid && categoryOK && distinct) {
-                results.add(buildResponse(results.size(), safeTitle(aiPlans.get(i).title(), i), picked, req.getTravelMode(), req.getDepartureStation()));
+                results.add(buildResponse(results.size(), safeTitle(aiPlans.get(i).title(), i), picked,
+                        req.getTravelMode(), req.getDepartureStation(), false, durationMinutes, false));
                 addedPlaceLists.add(new ArrayList<>(picked));
             }
         }
@@ -130,26 +132,31 @@ public class CourseService {
             log.info("[Course] 코스 {}: AI 플랜 통과 실패, 폴백 진입", index);
             List<Place> picked = pickCategoryAware(candidates, placeCount, rng, req.getTravelMode(), durationMinutes,
                     targetMinRatio(index), targetMaxRatio(index), List.of(), req.getDepartureStation(), addedPlaceLists);
-            results.add(buildResponse(results.size(), FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked, req.getTravelMode(), req.getDepartureStation()));
+            results.add(buildResponse(results.size(), FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked,
+                    req.getTravelMode(), req.getDepartureStation(), false, durationMinutes, true));
             addedPlaceLists.add(new ArrayList<>(picked));
         }
 
         // 코스 3: 확장 예산 (durationMinutes + 60)
         AiCourseClient.AiCoursePlan extendedPlan = aiPlans.size() >= 3 ? aiPlans.get(2) : null;
         List<Place> extendedPicked = null;
+        boolean extendedFallbackUsed = extendedPlan == null;
         if (extendedPlan != null) {
             extendedPicked = placesByIds(extendedPlan.placeIds(), extendedCandidates, extendedPlaceCount);
             if (!isValidCourse(extendedPicked, 1, req.getTravelMode(), extendedDuration, List.of(), req.getDepartureStation())) {
                 extendedPicked = null;
+                extendedFallbackUsed = true;
             }
         }
         if (extendedPicked == null || extendedPicked.isEmpty()) {
             extendedPicked = pickTimeAware(extendedCandidates, extendedPlaceCount, rng, req.getTravelMode(),
                     extendedDuration, 0.80, 0.95, List.of(), req.getDepartureStation());
+            extendedFallbackUsed = true;
         }
         String extendedTitle = (extendedPlan != null && extendedPlan.title() != null && !extendedPlan.title().isBlank())
                 ? safeTitle(extendedPlan.title(), 2) : FALLBACK_TITLES[2];
-        results.add(buildResponse(2, extendedTitle, extendedPicked, req.getTravelMode(), req.getDepartureStation()));
+        results.add(buildResponse(2, extendedTitle, extendedPicked, req.getTravelMode(), req.getDepartureStation(),
+                false, extendedDuration, extendedFallbackUsed));
 
         return results;
     }
@@ -183,6 +190,7 @@ public class CourseService {
                 ? List.of()
                 : placesByIds(aiPlans.get(0).placeIds(), candidates, placeCount);
 
+        boolean fallbackUsed = false;
         if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation())) {
             aiPicked = pickTimeAware(
                     candidates,
@@ -195,18 +203,21 @@ public class CourseService {
                     lockedPlaceIds,
                     req.getDepartureStation()
             );
+            fallbackUsed = true;
         }
 
         List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
         merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation());
         String title = aiPlans.isEmpty() ? "AI 재추천 코스" : safeTitle(aiPlans.get(0).title(), 0);
-        return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation());
+        return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation(),
+                false, durationMinutes, fallbackUsed || aiPlans.isEmpty());
     }
 
     public CourseResponse recalculateCourse(CourseRecalculateRequest req) {
         if (req.getPlaceIds() == null || req.getPlaceIds().isEmpty()) {
             return buildResponse(0, req.getTitle() == null ? "편집 코스" : req.getTitle(),
-                    List.of(), req.getTravelMode(), req.getDepartureStation());
+                    List.of(), req.getTravelMode(), req.getDepartureStation(), true,
+                    normalizedDuration(req.getDurationMinutes()), false);
         }
 
         List<Place> places = req.getPlaceIds().stream()
@@ -219,7 +230,8 @@ public class CourseService {
         String title = req.getTitle() == null || req.getTitle().isBlank()
                 ? "편집 코스"
                 : req.getTitle();
-        return buildResponse(0, title, places, req.getTravelMode(), req.getDepartureStation(), true);
+        return buildResponse(0, title, places, req.getTravelMode(), req.getDepartureStation(), true,
+                normalizedDuration(req.getDurationMinutes()), false);
     }
 
     private List<Place> selectCandidates(List<String> themeTags) {
@@ -662,11 +674,17 @@ public class CourseService {
     }
 
     private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode, String departureStation) {
-        return buildResponse(index, title, places, travelMode, departureStation, false);
+        return buildResponse(index, title, places, travelMode, departureStation, false, 0, false);
     }
 
     private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode,
                                          String departureStation, boolean calculateAllRouteModes) {
+        return buildResponse(index, title, places, travelMode, departureStation, calculateAllRouteModes, 0, false);
+    }
+
+    private CourseResponse buildResponse(int index, String title, List<Place> places, String travelMode,
+                                         String departureStation, boolean calculateAllRouteModes,
+                                         int timeBudgetMinutes, boolean fallbackUsed) {
         List<CourseStopResponse> stops = new ArrayList<>();
         int totalMinutes = 0;
         int totalFare = 0;
@@ -715,8 +733,37 @@ public class CourseService {
                 subTitle,
                 formatMin(totalMinutes),
                 "약 " + String.format("%,d", totalFare) + "원",
-                stops
+                stops,
+                recommendationReason(index, places, travelMode, departureStation, timeBudgetMinutes, totalMinutes, fallbackUsed),
+                timeBudgetMinutes,
+                totalMinutes,
+                RECOMMENDED_RETURN_BUFFER_MINUTES,
+                dataSources(calculateAllRouteModes),
+                fallbackUsed
         );
+    }
+
+    private String recommendationReason(int index, List<Place> places, String travelMode, String departureStation,
+                                        int timeBudgetMinutes, int totalMinutes, boolean fallbackUsed) {
+        String stationName = stationPlace(departureStation).getName();
+        String modeLabel = "WALK".equals(travelMode) ? "도보" : "택시";
+        String basis = fallbackUsed ? "AI 응답 검증 후 시간/카테고리 규칙 기반으로 보정" : "AI 후보 검증과 시간 예산 계산";
+        int realPlaceCount = places == null ? 0 : places.size();
+        String budgetText = timeBudgetMinutes > 0
+                ? String.format("사용 가능 %d분 중 약 %d분", timeBudgetMinutes, totalMinutes)
+                : String.format("약 %d분", totalMinutes);
+        return String.format("%s 기준 %s 이동으로 %d곳을 연결했습니다. %s을 반영했고, %s 소요로 계산했습니다.",
+                stationName, modeLabel, realPlaceCount, basis, budgetText);
+    }
+
+    private List<String> dataSources(boolean calculateAllRouteModes) {
+        List<String> sources = new ArrayList<>();
+        sources.add("한국관광공사 TourAPI");
+        sources.add("카카오 지도/모빌리티 경로");
+        if (calculateAllRouteModes) {
+            sources.add("사용자 편집 코스 재계산");
+        }
+        return sources;
     }
 
     private TransportInfoResponse calcTransport(Place from, Place to, String travelMode) {
@@ -726,7 +773,8 @@ public class CourseService {
     private TransportInfoResponse calcTransport(Place from, Place to, String travelMode, boolean calculateAllRouteModes) {
         if (from.getLatitude() == null || from.getLongitude() == null
                 || to.getLatitude() == null || to.getLongitude() == null) {
-            return new TransportInfoResponse("20분", "15분", "10분", 5000);
+            return new TransportInfoResponse("정보 없음", "정보 없음", "정보 없음", 0, List.of(),
+                    "UNAVAILABLE", "UNAVAILABLE", "UNAVAILABLE", "UNAVAILABLE");
         }
         double fLat = from.getLatitude().doubleValue(), fLng = from.getLongitude().doubleValue();
         double tLat = to.getLatitude().doubleValue(),   tLng = to.getLongitude().doubleValue();
@@ -741,26 +789,54 @@ public class CourseService {
         int fare = estimatedFare;
 
         List<double[]> routePath = List.of();
+        String walkSource = "ESTIMATED";
+        String taxiSource = "ESTIMATED";
+        String busSource = "UNAVAILABLE";
+        String routePathSource = "STRAIGHT_LINE";
 
         if (calculateAllRouteModes || "WALK".equals(travelMode)) {
             KakaoRouteApiClient.WalkRouteResult walkResult = kakaoRouteApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
-            walkMin = walkResult.minutes() > 0 ? walkResult.minutes() : estimatedWalkMin;
-            if (!walkResult.path().isEmpty()) routePath = walkResult.path();
+            if (walkResult.minutes() > 0) {
+                walkMin = walkResult.minutes();
+                walkSource = "KAKAO";
+            }
+            if (!walkResult.path().isEmpty()) {
+                routePath = walkResult.path();
+                routePathSource = "KAKAO";
+            }
         }
         if (calculateAllRouteModes || !"WALK".equals(travelMode)) {
             KakaoRouteApiClient.CarRouteResult carResult = kakaoRouteApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
-            taxiMin = carResult.minutes() > 0 ? carResult.minutes() : estimatedTaxiMin;
-            fare = carResult.taxiFare() > 0 ? carResult.taxiFare() : estimatedFare;
-            if (routePath.isEmpty() && !carResult.path().isEmpty()) routePath = carResult.path();
+            if (carResult.minutes() > 0) {
+                taxiMin = carResult.minutes();
+                taxiSource = "KAKAO_MOBILITY";
+            }
+            if (carResult.taxiFare() > 0) {
+                fare = carResult.taxiFare();
+                taxiSource = "KAKAO_MOBILITY";
+            }
+            if (routePath.isEmpty() && !carResult.path().isEmpty()) {
+                routePath = carResult.path();
+                routePathSource = "KAKAO_MOBILITY";
+            }
         }
 
         KakaoRouteApiClient.PublicTransitRouteResult transitResult =
                 kakaoRouteApiClient.getPublicTransitRouteResult(fLat, fLng, tLat, tLng);
-        int busMin = transitResult.minutes() > 0
-                ? transitResult.minutes()
-                : busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+        int busMin;
+        if (transitResult.minutes() > 0) {
+            busMin = transitResult.minutes();
+            busSource = "KAKAO";
+        } else {
+            busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+            if (busMin > 0) {
+                busSource = "BUS_STOP_ESTIMATE";
+            }
+        }
 
-        return new TransportInfoResponse(walkMin + "분", busMin + "분", taxiMin + "분", fare, routePath);
+        String busTime = busMin > 0 ? busMin + "분" : "정보 없음";
+        return new TransportInfoResponse(walkMin + "분", busTime, taxiMin + "분", fare, routePath,
+                walkSource, busSource, taxiSource, routePathSource);
     }
 
     private double haversine(double lat1, double lon1, double lat2, double lon2) {
