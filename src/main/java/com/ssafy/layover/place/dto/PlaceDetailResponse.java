@@ -34,6 +34,9 @@ public class PlaceDetailResponse {
     private String contentTypeId;
     private LocalDateTime syncedAt;
 
+    /** OPEN / CLOSED / UNKNOWN. UNKNOWN이면 화면에서 "정보 확인 필요"로 안내한다. */
+    private String openStatus;
+
     public static PlaceDetailResponse from(Place place) {
         return PlaceDetailResponse.builder()
                 .id(place.getId())
@@ -57,6 +60,7 @@ public class PlaceDetailResponse {
                 .tourApiId(place.getTourApiId())
                 .contentTypeId(place.getContentTypeId())
                 .syncedAt(place.getSyncedAt())
+                .openStatus(place.getOpenStatus().name())
                 .build();
     }
 }

@@ -48,8 +48,14 @@ public class SecurityConfig {
                             "/api/trains/**", "/uploads/**", "/api/auth/refresh").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll();
 
+                // 관광지 전체 동기화는 TourAPI/Kakao 일일 호출 한도를 소모하는 무거운 작업이다.
+                // 예전에는 anyRequest().authenticated() 에만 걸려 있어 로그인만 하면 누구나 실행할 수 있었다.
                 if (placeSyncPublicEnabled) {
+                    // 로컬에서 DB를 비우고 재수집할 때만 켠다. 배포 환경에서는 false를 유지해야 한다.
                     auth.requestMatchers(HttpMethod.POST, "/api/admin/places/sync", "/api/places/sync").permitAll();
+                } else {
+                    auth.requestMatchers(HttpMethod.POST, "/api/admin/places/sync", "/api/places/sync")
+                        .hasRole("ADMIN");
                 }
 
                 auth.requestMatchers(HttpMethod.GET, "/api/posts").permitAll()

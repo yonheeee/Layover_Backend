@@ -152,7 +152,8 @@ public class AiCourseClient {
             List<Place> candidates,
             int placeCount,
             int courseCount,
-            List<String> lockedPlaceIds
+            List<String> lockedPlaceIds,
+            int usableDurationMinutes
     ) {
         if (!enabled || isBlank(apiKey) || isBlank(baseUrl) || candidates == null || candidates.isEmpty()) {
             return List.of();
@@ -163,7 +164,7 @@ public class AiCourseClient {
             return List.of();
         }
 
-        String prompt = buildPrompt(req, candidates, placeCount, courseCount, lockedPlaceIds);
+        String prompt = buildPrompt(req, candidates, placeCount, courseCount, lockedPlaceIds, usableDurationMinutes);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
@@ -195,10 +196,11 @@ public class AiCourseClient {
             List<Place> candidates,
             int placeCount,
             int courseCount,
-            List<String> lockedPlaceIds
+            List<String> lockedPlaceIds,
+            int usableDurationMinutes
     ) {
         StringBuilder sb = new StringBuilder();
-        double maxRadiusKm = radiusKmForPrompt(req.getDurationMinutes(), "WALK".equalsIgnoreCase(req.getTravelMode()));
+        double maxRadiusKm = radiusKmForPrompt(usableDurationMinutes, "WALK".equalsIgnoreCase(req.getTravelMode()));
         double[] stationCoordinate = stationCoordinate(req.getDepartureStation());
         sb.append("Task: recommend Daejeon layover travel courses.\n");
         sb.append("Return JSON only. No markdown, no comments, no extra text.\n");
@@ -210,6 +212,7 @@ public class AiCourseClient {
         sb.append("3. Each course must fit within availableDurationMinutes, including estimated stay time and travel time.\n");
         sb.append("4. The time budget includes going from the departure station to the first place AND returning from the last place to the departure station.\n");
         sb.append("5. Prefer currently open places. Avoid closed places unless there are no good alternatives.\n");
+        sb.append("5-1. STRICT: the user picked specific theme categories. Every place you choose must belong to one of them. Do not substitute a related category.\n");
         sb.append("6. If locked place ids are provided, every returned course must include all locked ids.\n");
         sb.append("7. Keep route order geographically reasonable for a short rail layover and finish near enough to return safely.\n");
         sb.append("8. Candidate places are pre-filtered by station radius. Prefer closer candidates first. Current radius limit: ")
@@ -235,7 +238,8 @@ public class AiCourseClient {
         sb.append("Number of courses: ").append(courseCount).append("\n");
         sb.append("Departure station: ").append(req.getDepartureStation()).append("\n");
         sb.append("Departure station coordinates: ").append(stationCoordinateHint(req.getDepartureStation())).append("\n");
-        sb.append("Available duration minutes: ").append(req.getDurationMinutes()).append("\n");
+        sb.append("Available duration minutes: ").append(usableDurationMinutes)
+                .append(" (train return buffer already reserved; do NOT exceed this)\n");
         sb.append("Travel mode: ").append(req.getTravelMode()).append("\n");
         sb.append("Weather: ").append(req.getWeatherCondition()).append("\n");
         sb.append("Preference tags: ").append(req.getThemeTags()).append("\n");
@@ -309,16 +313,17 @@ public class AiCourseClient {
         return value == null ? "" : value;
     }
 
+    /** CourseService.radiusKmFor 와 동일한 값을 유지해야 한다. */
     private double radiusKmForPrompt(int durationMinutes, boolean walkOnly) {
         if (walkOnly) {
-            if (durationMinutes <= 180) return 2.0;
-            if (durationMinutes <= 300) return 4.0;
-            return 6.0;
+            if (durationMinutes <= 180) return 1.5;
+            if (durationMinutes <= 300) return 2.5;
+            return 3.5;
         }
 
         if (durationMinutes <= 180) return 3.0;
-        if (durationMinutes <= 300) return 7.0;
-        return 12.0;
+        if (durationMinutes <= 300) return 5.0;
+        return 8.0;
     }
 
     private double[] stationCoordinate(String departureStation) {
@@ -367,7 +372,9 @@ public class AiCourseClient {
             int placeCount,
             int extendedPlaceCount,
             int courseCount,
-            List<String> lockedPlaceIds
+            List<String> lockedPlaceIds,
+            int usableDurationMinutes,
+            int usableExtendedMinutes
     ) {
         if (!enabled || isBlank(apiKey) || isBlank(baseUrl)) {
             return List.of();
@@ -381,7 +388,8 @@ public class AiCourseClient {
         if (allCandidates == null || allCandidates.isEmpty()) return List.of();
 
         String prompt = buildPromptWithExtended(req, standardCandidates, extendedCandidates,
-                placeCount, extendedPlaceCount, courseCount, lockedPlaceIds);
+                placeCount, extendedPlaceCount, courseCount, lockedPlaceIds,
+                usableDurationMinutes, usableExtendedMinutes);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
@@ -416,10 +424,12 @@ public class AiCourseClient {
             int placeCount,
             int extendedPlaceCount,
             int courseCount,
-            List<String> lockedPlaceIds
+            List<String> lockedPlaceIds,
+            int usableDurationMinutes,
+            int usableExtendedMinutes
     ) {
-        int durationMinutes = req.getDurationMinutes();
-        int extendedDuration = durationMinutes + 60;
+        int durationMinutes = usableDurationMinutes;
+        int extendedDuration = usableExtendedMinutes;
         boolean walkOnly = "WALK".equalsIgnoreCase(req.getTravelMode());
         double standardRadius = radiusKmForPrompt(durationMinutes, walkOnly);
         double extendedRadius = radiusKmForPrompt(extendedDuration, walkOnly);
@@ -440,6 +450,7 @@ public class AiCourseClient {
         sb.append("3. Course 3 (extended): exactly ").append(extendedPlaceCount).append(" placeIds.\n");
         sb.append("4. Each course must fit within its time budget including station→first and last→station travel.\n");
         sb.append("5. Prefer currently open places.\n");
+        sb.append("5-1. STRICT: the user picked specific theme categories. Every place you choose must belong to one of them. Do not substitute a related category.\n");
         sb.append("6. Courses 1 and 2 must be meaningfully different — share fewer than half their places.\n");
         sb.append("7. Courses 1 and 2 category rules:\n");
         sb.append("   - No two consecutive places may share the same category.\n");
