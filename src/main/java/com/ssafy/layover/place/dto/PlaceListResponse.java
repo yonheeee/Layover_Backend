@@ -20,6 +20,9 @@ public class PlaceListResponse {
     private String operatingHours;
     private boolean isActive;
 
+    /** OPEN / CLOSED / UNKNOWN */
+    private String openStatus;
+
     public static PlaceListResponse from(Place place) {
         return PlaceListResponse.builder()
                 .id(place.getId())
@@ -31,6 +34,7 @@ public class PlaceListResponse {
                 .imageUrl(place.getImageUrl())
                 .operatingHours(place.getOperatingHours())
                 .isActive(Boolean.TRUE.equals(place.getActive()))
+                .openStatus(place.getOpenStatus().name())
                 .build();
     }
 }

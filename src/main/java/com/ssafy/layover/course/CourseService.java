@@ -6,7 +6,9 @@ import com.ssafy.layover.kakao.KakaoRouteApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
 import com.ssafy.layover.place.StationPlaceSeeder;
+import com.ssafy.layover.weather.WeatherService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,8 +22,16 @@ public class CourseService {
 
     private static final int RECOMMENDED_COURSE_COUNT = 3;
     private static final int FALLBACK_PICK_ATTEMPTS = 15;
-    private static final int RECOMMENDED_RETURN_BUFFER_MINUTES = 30;
     private static final String[] FALLBACK_TITLES = {"추천 코스 A", "추천 코스 B", "플러스+1 코스"};
+
+    /** 선택한 테마에서 이 개수 미만이면 전체 장소로 확장한다. */
+    private static final int MIN_CANDIDATES_FOR_THEME = 6;
+
+    /** 후보가 부족할 때 허용하는 반경 완화 배수. 무제한 확장을 막는다. */
+    private static final double RADIUS_RELAX_MULTIPLIER = 1.5;
+
+    /** 복귀 버퍼를 빼고도 최소한 이만큼은 코스에 쓸 수 있어야 한다. */
+    private static final int MIN_USABLE_MINUTES = 30;
 
     private final PlaceMapper placeMapper;
     private final CourseMapper courseMapper;
@@ -29,17 +39,31 @@ public class CourseService {
     private final BusService busService;
     private final KakaoRouteApiClient kakaoRouteApiClient;
     private final AiCourseClient aiCourseClient;
+    private final WeatherService weatherService;
+
+    /**
+     * 열차 복귀를 위해 남겨두는 여유 시간(분).
+     *
+     * <p>예전에는 프론트엔드가 열차 모드에서만 30분을 빼서 보내고, 직접 입력 모드에서는 빼지 않았다.
+     * 게다가 백엔드는 이 값을 응답에 실어 보내기만 하고 시간 예산 계산에는 반영하지 않아서,
+     * AI가 만든 코스는 잔여 시간을 100% 쓰면서도 "복귀 30분 권장"이라고 표시될 수 있었다.
+     * 이제 버퍼는 백엔드 한 곳에서만 적용한다.
+     */
+    @Value("${course.return-buffer-minutes:30}")
+    private int returnBufferMinutes;
 
     public CourseService(PlaceMapper placeMapper, CourseMapper courseMapper,
                          CoursePlaceMapper coursePlaceMapper, BusService busService,
                          KakaoRouteApiClient kakaoRouteApiClient,
-                         AiCourseClient aiCourseClient) {
+                         AiCourseClient aiCourseClient,
+                         WeatherService weatherService) {
         this.placeMapper = placeMapper;
         this.courseMapper = courseMapper;
         this.coursePlaceMapper = coursePlaceMapper;
         this.busService = busService;
         this.kakaoRouteApiClient = kakaoRouteApiClient;
         this.aiCourseClient = aiCourseClient;
+        this.weatherService = weatherService;
     }
     @Transactional
     public String saveCourse(String userId, SaveCourseRequest req) {
@@ -85,6 +109,8 @@ public class CourseService {
     }
 
     public List<CourseResponse> generateCourses(CourseGenerateRequest req) {
+        applyWeatherIfMissing(req);
+
         List<Place> allCandidates = selectCandidates(req.getThemeTags());
         if (allCandidates.size() < 2) {
             allCandidates = placeMapper.findAllWithLocation();
@@ -92,20 +118,25 @@ public class CourseService {
 
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
         int extendedDuration = durationMinutes + 60;
-        int placeCount = placeCountFor(durationMinutes);
-        int extendedPlaceCount = placeCountFor(extendedDuration);
+        // 복귀 버퍼를 뺀 실제 편성 가능 시간. 검증/선정은 모두 이 값을 기준으로 한다.
+        int usableDuration = usableMinutes(durationMinutes);
+        int usableExtended = usableMinutes(extendedDuration);
+        int placeCount = placeCountFor(usableDuration);
+        int extendedPlaceCount = placeCountFor(usableExtended);
+        log.info("[Course] 잔여 {}분 - 복귀 버퍼 {}분 = 편성 가능 {}분", durationMinutes, returnBufferMinutes, usableDuration);
 
         List<Place> candidates = filterCandidatesByStationRadius(
-                allCandidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
+                allCandidates, req.getDepartureStation(), usableDuration, placeCount, req.getTravelMode());
         List<Place> extendedCandidates = filterCandidatesByStationRadius(
-                allCandidates, req.getDepartureStation(), extendedDuration, extendedPlaceCount, req.getTravelMode());
+                allCandidates, req.getDepartureStation(), usableExtended, extendedPlaceCount, req.getTravelMode());
         Random rng = new Random();
 
         List<CourseResponse> results = new ArrayList<>();
         List<List<Place>> addedPlaceLists = new ArrayList<>();
 
         List<AiCourseClient.AiCoursePlan> aiPlans = aiCourseClient.recommendCourses(
-                req, candidates, extendedCandidates, placeCount, extendedPlaceCount, RECOMMENDED_COURSE_COUNT, List.of());
+                req, candidates, extendedCandidates, placeCount, extendedPlaceCount, RECOMMENDED_COURSE_COUNT,
+                List.of(), usableDuration, usableExtended);
         // AI 호출이 실패해도 코스 추천 자체를 실패시키지 않는다.
         // 아래 폴백 경로가 시간 예산과 카테고리 규칙으로 동일한 품질 기준의 코스를 만들어 내며,
         // 응답의 fallbackUsed 플래그로 프론트에 "규칙 보정"임을 정직하게 노출한다.
@@ -117,7 +148,7 @@ public class CourseService {
         // 코스 1, 2: 표준 예산 + 카테고리 제약 + 코스 간 중복 방지
         for (int i = 0; i < Math.min(2, aiPlans.size()) && addedPlaceLists.size() < 2; i++) {
             List<Place> picked = placesByIds(aiPlans.get(i).placeIds(), candidates, placeCount);
-            boolean isValid = isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, List.of(), req.getDepartureStation());
+            boolean isValid = isValidCourse(picked, Math.min(placeCount, candidates.size()), req.getTravelMode(), usableDuration, List.of(), req.getDepartureStation());
             boolean categoryOK = isValid && hasValidCategoryConstraints(picked);
             boolean distinct = categoryOK && isDistinctFrom(picked, addedPlaceLists);
             log.info("[Course] AI 플랜 {} 검증 - isValid:{} categoryOK:{} distinct:{} picked:{}",
@@ -133,7 +164,7 @@ public class CourseService {
         while (addedPlaceLists.size() < 2) {
             int index = addedPlaceLists.size();
             log.info("[Course] 코스 {}: AI 플랜 통과 실패, 폴백 진입", index);
-            List<Place> picked = pickCategoryAware(candidates, placeCount, rng, req.getTravelMode(), durationMinutes,
+            List<Place> picked = pickCategoryAware(candidates, placeCount, rng, req.getTravelMode(), usableDuration,
                     targetMinRatio(index), targetMaxRatio(index), List.of(), req.getDepartureStation(), addedPlaceLists);
             results.add(buildResponse(results.size(), FALLBACK_TITLES[Math.min(index, FALLBACK_TITLES.length - 1)], picked,
                     req.getTravelMode(), req.getDepartureStation(), false, durationMinutes, true));
@@ -146,14 +177,14 @@ public class CourseService {
         boolean extendedFallbackUsed = extendedPlan == null;
         if (extendedPlan != null) {
             extendedPicked = placesByIds(extendedPlan.placeIds(), extendedCandidates, extendedPlaceCount);
-            if (!isValidCourse(extendedPicked, 1, req.getTravelMode(), extendedDuration, List.of(), req.getDepartureStation())) {
+            if (!isValidCourse(extendedPicked, 1, req.getTravelMode(), usableExtended, List.of(), req.getDepartureStation())) {
                 extendedPicked = null;
                 extendedFallbackUsed = true;
             }
         }
         if (extendedPicked == null || extendedPicked.isEmpty()) {
             extendedPicked = pickTimeAware(extendedCandidates, extendedPlaceCount, rng, req.getTravelMode(),
-                    extendedDuration, 0.80, 0.95, List.of(), req.getDepartureStation());
+                    usableExtended, 0.80, 0.95, List.of(), req.getDepartureStation());
             extendedFallbackUsed = true;
         }
         String extendedTitle = (extendedPlan != null && extendedPlan.title() != null && !extendedPlan.title().isBlank())
@@ -165,6 +196,8 @@ public class CourseService {
     }
 
     public CourseResponse regenerateCourse(CourseRegenerateRequest req) {
+        applyWeatherIfMissing(req);
+
         List<Place> candidates = selectCandidates(req.getThemeTags());
         if (candidates.size() < 2) {
             candidates = placeMapper.findAllWithLocation();
@@ -174,7 +207,8 @@ public class CourseService {
                 ? req.getCurrentPlaces().size()
                 : placeCountFor(req.getDurationMinutes());
         int durationMinutes = normalizedDuration(req.getDurationMinutes());
-        candidates = filterCandidatesByStationRadius(candidates, req.getDepartureStation(), durationMinutes, placeCount, req.getTravelMode());
+        int usableDuration = usableMinutes(durationMinutes);
+        candidates = filterCandidatesByStationRadius(candidates, req.getDepartureStation(), usableDuration, placeCount, req.getTravelMode());
 
         List<String> lockedPlaceIds = req.getCurrentPlaces() == null
                 ? List.of()
@@ -185,7 +219,7 @@ public class CourseService {
                 .toList();
 
         List<AiCourseClient.AiCoursePlan> aiPlans =
-                aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds);
+                aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds, usableDuration);
         if (aiPlans.isEmpty()) {
             log.warn("[Course] AI 재추천 결과가 없어 규칙 기반 폴백으로 코스를 재구성합니다. (aiBlocked={})",
                     aiCourseClient.isBlocked());
@@ -195,13 +229,13 @@ public class CourseService {
                 : placesByIds(aiPlans.get(0).placeIds(), candidates, placeCount);
 
         boolean fallbackUsed = false;
-        if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation())) {
+        if (!isValidCourse(aiPicked, Math.min(placeCount, candidates.size()), req.getTravelMode(), usableDuration, lockedPlaceIds, req.getDepartureStation())) {
             aiPicked = pickTimeAware(
                     candidates,
                     placeCount,
                     new Random(),
                     req.getTravelMode(),
-                    durationMinutes,
+                    usableDuration,
                     0.70,
                     0.85,
                     lockedPlaceIds,
@@ -211,7 +245,7 @@ public class CourseService {
         }
 
         List<Place> merged = mergeLockedPlaces(req, aiPicked, candidates, placeCount);
-        merged = trimToFit(merged, req.getTravelMode(), durationMinutes, lockedPlaceIds, req.getDepartureStation());
+        merged = trimToFit(merged, req.getTravelMode(), usableDuration, lockedPlaceIds, req.getDepartureStation());
         String title = aiPlans.isEmpty() ? "AI 재추천 코스" : safeTitle(aiPlans.get(0).title(), 0);
         return buildResponse(0, title, merged, req.getTravelMode(), req.getDepartureStation(),
                 false, durationMinutes, fallbackUsed || aiPlans.isEmpty());
@@ -238,39 +272,73 @@ public class CourseService {
                 normalizedDuration(req.getDurationMinutes()), false);
     }
 
-    private List<Place> selectCandidates(List<String> themeTags) {
-        if (themeTags == null || themeTags.isEmpty()) {
-            return placeMapper.findAllWithLocation();
+    /**
+     * 요청에 날씨가 없으면 출발역 좌표로 조회해 채운다.
+     * 조회에 실패해도 UNKNOWN이 들어갈 뿐 코스 추천은 그대로 진행된다.
+     */
+    private void applyWeatherIfMissing(CourseGenerateRequest req) {
+        if (req.getWeatherCondition() != null && !req.getWeatherCondition().isBlank()) {
+            return;
         }
-        List<String> categories = expandThemeTags(themeTags);
-        return categories.isEmpty()
-                ? placeMapper.findAllWithLocation()
-                : placeMapper.findByCategoryIn(categories);
+        Place station = stationPlace(req.getDepartureStation());
+        String condition = weatherService.getCurrentCondition(
+                station.getLatitude().doubleValue(), station.getLongitude().doubleValue());
+        req.applyWeatherCondition(condition);
     }
 
+    private List<Place> selectCandidates(List<String> themeTags) {
+        List<Place> candidates;
+        if (themeTags == null || themeTags.isEmpty()) {
+            candidates = placeMapper.findAllWithLocation();
+        } else {
+            List<String> categories = expandThemeTags(themeTags);
+            candidates = categories.isEmpty()
+                    ? placeMapper.findAllWithLocation()
+                    : placeMapper.findByCategoryIn(categories);
+
+            // 선택한 카테고리 안에서 후보가 너무 적으면 코스를 만들 수 없다.
+            // 이때만 전체 후보로 넓히고, 넓혔다는 사실을 로그로 남긴다.
+            if (candidates.size() < MIN_CANDIDATES_FOR_THEME) {
+                log.info("[Course] 카테고리 {} 후보가 {}개뿐이라 전체 장소로 확장합니다.",
+                        categories, candidates.size());
+                candidates = placeMapper.findAllWithLocation();
+            }
+        }
+        return excludeClosedPlaces(candidates);
+    }
+
+    /**
+     * 오늘 확실히 휴무인 장소를 후보에서 제외한다.
+     * 운영시간 정보가 없는 장소(UNKNOWN)는 남긴다. 정보 부재를 이유로 빼면 후보가 과도하게 줄어든다.
+     */
+    private List<Place> excludeClosedPlaces(List<Place> candidates) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+
+        List<Place> open = candidates.stream()
+                .filter(place -> place != null && !place.isDefinitelyClosed())
+                .toList();
+
+        int removed = candidates.size() - open.size();
+        if (removed > 0) {
+            log.info("[Course] 휴무일/영업시간 밖인 장소 {}개를 후보에서 제외했습니다. (남은 후보 {}개)",
+                    removed, open.size());
+        }
+        // 전부 닫혀 있으면(심야 등) 필터를 포기한다. 빈 코스를 주는 것보다는 낫다.
+        return open.isEmpty() ? candidates : open;
+    }
+
+    /**
+     * 테마 태그를 DB 카테고리로 변환한다.
+     *
+     * <p>과거에는 CAFE를 고르면 FOOD를, NATURE를 고르면 TOUR와 LEPORTS를 함께 넣어
+     * "카페를 골랐는데 음식점이 나온다"는 문제가 있었다. 사용자가 고른 카테고리를 그대로 지키고,
+     * 후보가 부족한 경우에만 {@link #selectCandidates} 에서 명시적으로 확장한다.
+     */
     private List<String> expandThemeTags(List<String> themeTags) {
         Set<String> categories = new LinkedHashSet<>();
         for (String rawTag : themeTags) {
             if (rawTag == null || rawTag.isBlank()) continue;
-            String tag = rawTag.trim().toUpperCase(Locale.ROOT);
-            switch (tag) {
-                case "FOOD" -> categories.add("FOOD");
-                case "CAFE" -> {
-                    categories.add("CAFE");
-                    categories.add("FOOD");
-                }
-                case "NATURE" -> {
-                    categories.add("NATURE");
-                    categories.add("TOUR");
-                    categories.add("LEPORTS");
-                }
-                case "TOUR" -> categories.add("TOUR");
-                case "CULTURE" -> categories.add("CULTURE");
-                case "SHOPPING" -> categories.add("SHOPPING");
-                case "FESTIVAL" -> categories.add("FESTIVAL");
-                case "LEPORTS" -> categories.add("LEPORTS");
-                default -> categories.add(tag);
-            }
+            categories.add(rawTag.trim().toUpperCase(Locale.ROOT));
         }
         return new ArrayList<>(categories);
     }
@@ -297,7 +365,25 @@ public class CourseService {
         if (withinRadius.size() >= Math.max(placeCount, 2)) {
             return withinRadius;
         }
-        return sortedByStationDistance.isEmpty() ? candidates : sortedByStationDistance;
+
+        // 후보가 부족할 때 예전에는 반경을 통째로 무시하고 전체를 반환했다.
+        // 그 결과 카테고리를 좁힐수록 오히려 추천 범위가 넓어지는 역효과가 있었다.
+        // 이제는 상한 반경까지만 완화하고, 완화 사실을 로그로 남긴다.
+        double relaxedRadiusKm = radiusKm * RADIUS_RELAX_MULTIPLIER;
+        List<Place> relaxed = sortedByStationDistance.stream()
+                .filter(place -> distanceFromStation(station, place) <= relaxedRadiusKm)
+                .toList();
+        log.info("[Course] 반경 {}km 후보가 {}개뿐이라 {}km까지 완화했습니다. (완화 후 {}개)",
+                String.format("%.1f", radiusKm), withinRadius.size(),
+                String.format("%.1f", relaxedRadiusKm), relaxed.size());
+
+        if (!relaxed.isEmpty()) {
+            return relaxed;
+        }
+        // 상한 반경 안에도 아무것도 없으면 가장 가까운 곳들이라도 쓴다.
+        return sortedByStationDistance.isEmpty()
+                ? candidates
+                : sortedByStationDistance.subList(0, Math.min(minimumNeeded, sortedByStationDistance.size()));
     }
 
     private boolean hasLocation(Place place) {
@@ -316,16 +402,23 @@ public class CourseService {
         );
     }
 
+    /**
+     * 출발역 기준 후보 반경.
+     *
+     * <p>환승 관광은 "역 근처에서 짧게"가 핵심이다. 예전 값(택시 최대 12km)은 잔여 시간이 길면
+     * 대전 전역이 후보가 되어 추천이 산만해졌다. 이동 시간이 늘수록 체류 시간이 줄어들기 때문에
+     * 시간이 많다고 반경을 비례해서 늘리는 것은 오히려 코스 품질을 떨어뜨린다.
+     */
     private double radiusKmFor(int durationMinutes, boolean walkOnly) {
         if (walkOnly) {
-            if (durationMinutes <= 180) return 2.0;
-            if (durationMinutes <= 300) return 4.0;
-            return 6.0;
+            if (durationMinutes <= 180) return 1.5;
+            if (durationMinutes <= 300) return 2.5;
+            return 3.5;
         }
 
         if (durationMinutes <= 180) return 3.0;
-        if (durationMinutes <= 300) return 7.0;
-        return 12.0;
+        if (durationMinutes <= 300) return 5.0;
+        return 8.0;
     }
 
     private int placeCountFor(int durationMinutes) {
@@ -657,6 +750,15 @@ public class CourseService {
         return durationMinutes > 0 ? durationMinutes : 120;
     }
 
+    /**
+     * 코스 편성에 실제로 쓸 수 있는 시간. 잔여 시간에서 복귀 버퍼를 뺀 값이다.
+     * 버퍼가 잔여 시간보다 큰 짧은 환승에서도 최소 시간은 남긴다.
+     */
+    private int usableMinutes(int durationMinutes) {
+        int buffer = Math.max(0, returnBufferMinutes);
+        return Math.max(MIN_USABLE_MINUTES, durationMinutes - buffer);
+    }
+
     private double targetMinRatio(int index) {
         return switch (index) {
             case 0 -> 0.50;
@@ -741,7 +843,7 @@ public class CourseService {
                 recommendationReason(index, places, travelMode, departureStation, timeBudgetMinutes, totalMinutes, fallbackUsed),
                 timeBudgetMinutes,
                 totalMinutes,
-                RECOMMENDED_RETURN_BUFFER_MINUTES,
+                returnBufferMinutes,
                 dataSources(calculateAllRouteModes),
                 fallbackUsed
         );

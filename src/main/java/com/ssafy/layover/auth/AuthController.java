@@ -27,6 +27,13 @@ public class AuthController {
                     .body(ApiResponse.fail("유효하지 않은 리프레시 토큰입니다."));
         }
 
+        // access token으로는 재발급받을 수 없다. 종류를 구분하지 않으면 짧은 만료 시간이
+        // 무의미해지고, 유출된 access token 하나로 계속 갱신할 수 있게 된다.
+        if (!jwtUtil.isTokenType(refreshToken, JwtUtil.TYPE_REFRESH)) {
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.fail("리프레시 토큰이 아닙니다. 다시 로그인해주세요."));
+        }
+
         String userId = jwtUtil.getUserId(refreshToken);
         User user = userRepository.findById(userId).orElse(null);
         if (user == null || user.getDeletedAt() != null) {
