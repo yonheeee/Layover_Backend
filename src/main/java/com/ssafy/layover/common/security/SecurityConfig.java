@@ -33,24 +33,32 @@ public class SecurityConfig {
     @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
 
+    @Value("${place.sync.public-enabled:false}")
+    private boolean placeSyncPublicEnabled;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
-                .requestMatchers("/api/signup/**", "/api/login/**", "/api/find/**",
-                        "/api/trains/**", "/uploads/**", "/api/auth/refresh").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/posts").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/posts/my").authenticated()
-                .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
-                .requestMatchers("/api/notices/**").permitAll()
-                .requestMatchers("/api/faq/**").permitAll()
-                .anyRequest().authenticated()
-            )
+            .authorizeHttpRequests(auth -> {
+                auth.dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
+                    .requestMatchers("/api/signup/**", "/api/login/**", "/api/find/**",
+                            "/api/trains/**", "/uploads/**", "/api/auth/refresh").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/places/**").permitAll();
+
+                if (placeSyncPublicEnabled) {
+                    auth.requestMatchers(HttpMethod.POST, "/api/admin/places/sync", "/api/places/sync").permitAll();
+                }
+
+                auth.requestMatchers(HttpMethod.GET, "/api/posts").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/posts/my").authenticated()
+                    .requestMatchers(HttpMethod.GET, "/api/posts/**").permitAll()
+                    .requestMatchers("/api/notices/**").permitAll()
+                    .requestMatchers("/api/faq/**").permitAll()
+                    .anyRequest().authenticated();
+            })
             .addFilterBefore(new JwtFilter(jwtUtil), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

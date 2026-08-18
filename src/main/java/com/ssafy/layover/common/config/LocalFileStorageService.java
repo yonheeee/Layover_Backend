@@ -21,10 +21,14 @@ public class LocalFileStorageService implements FileStorageService {
     public String upload(MultipartFile file, String directory) {
         try {
             String filename = StorageFileNames.randomName(file.getOriginalFilename());
-            Path dir = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Path root = Paths.get(uploadDir).toAbsolutePath().normalize();
+            Path dir = root.resolve(directory).normalize();
+            if (!dir.startsWith(root)) {
+                throw new FileStorageException("허용되지 않은 저장 경로입니다.", null);
+            }
             Files.createDirectories(dir);
             file.transferTo(dir.resolve(filename));
-            return "/uploads/" + filename;
+            return "/uploads/" + directory + "/" + filename;
         } catch (IOException e) {
             throw new FileStorageException("로컬 파일 저장 중 오류가 발생했습니다.", e);
         }

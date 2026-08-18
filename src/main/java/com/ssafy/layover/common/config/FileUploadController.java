@@ -18,14 +18,16 @@ public class FileUploadController {
 
     @PostMapping("/image")
     public ResponseEntity<ApiResponse<String>> uploadImage(@RequestParam("file") MultipartFile file) {
-        if (file.isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("파일이 비어 있습니다."));
-        }
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            return ResponseEntity.badRequest().body(ApiResponse.fail("이미지 파일만 업로드할 수 있습니다."));
-        }
+        ResponseEntity<ApiResponse<String>> invalidResponse = validateImage(file);
+        if (invalidResponse != null) return invalidResponse;
         return upload(file, "community/images", "이미지");
+    }
+
+    @PostMapping("/profile-image")
+    public ResponseEntity<ApiResponse<String>> uploadProfileImage(@RequestParam("file") MultipartFile file) {
+        ResponseEntity<ApiResponse<String>> invalidResponse = validateImage(file);
+        if (invalidResponse != null) return invalidResponse;
+        return upload(file, "profile/images", "프로필 이미지");
     }
 
     @PostMapping("/file")
@@ -43,5 +45,16 @@ public class FileUploadController {
             return ResponseEntity.internalServerError()
                     .body(ApiResponse.fail(label + " 업로드에 실패했습니다: " + e.getMessage()));
         }
+    }
+
+    private ResponseEntity<ApiResponse<String>> validateImage(MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("파일이 비어 있습니다."));
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            return ResponseEntity.badRequest().body(ApiResponse.fail("이미지 파일만 업로드할 수 있습니다."));
+        }
+        return null;
     }
 }

@@ -4,6 +4,7 @@ import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.user.dto.UpdateNicknameRequest;
 import com.ssafy.layover.user.dto.UpdatePasswordRequest;
 import com.ssafy.layover.user.dto.UpdatePhoneRequest;
+import com.ssafy.layover.user.dto.UpdateProfileImageRequest;
 import com.ssafy.layover.user.dto.UserMeResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,14 @@ public class MeController {
             @Valid @RequestBody UpdatePhoneRequest req) {
         meService.updatePhone(userId, req.getPhone());
         return ResponseEntity.ok(ApiResponse.success("전화번호가 변경되었습니다.", null));
+    }
+
+    @PutMapping("/profile-image")
+    public ResponseEntity<ApiResponse<Void>> updateProfileImage(
+            @AuthenticationPrincipal String userId,
+            @RequestBody UpdateProfileImageRequest req) {
+        meService.updateProfileImage(userId, req.getProfileImage());
+        return ResponseEntity.ok(ApiResponse.success("프로필 사진이 변경되었습니다.", null));
     }
 
     @PutMapping("/password")
