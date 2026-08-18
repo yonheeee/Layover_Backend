@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.layover.place.Place;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
@@ -17,18 +19,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Component
 public class AiCourseClient {
 
-    private static final int MAX_ATTEMPTS = 3;
-
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final AtomicBoolean blocked = new AtomicBoolean(false);
+
+    /**
+     * 시간 기반 회로 차단기.
+     *
+     * <p>과거에는 실패가 누적되면 {@code AtomicBoolean}을 영구히 true로 세팅해 서버를
+     * 재시작할 때까지 AI 호출이 되살아나지 못했다. 일시적인 rate limit 한 번에
+     * 코스 추천 기능 전체가 죽는 구조였으므로, 쿨다운이 지나면 자동으로 반열림(half-open)
+     * 상태가 되어 다시 시도하도록 바꿨다.
+     */
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+    private final AtomicLong circuitOpenUntilMs = new AtomicLong(0L);
 
     @Value("${ai.course.enabled:true}")
     private boolean enabled;
@@ -42,12 +53,98 @@ public class AiCourseClient {
     @Value("${ai.course.model:gpt-4o-mini}")
     private String model;
 
-    public AiCourseClient(RestTemplate restTemplate) {
+    /** 한 번의 추천 요청 안에서 재시도할 최대 횟수. 응답 지연이 누적되지 않도록 작게 유지한다. */
+    @Value("${ai.course.max-attempts:2}")
+    private int maxAttempts;
+
+    /** 연속 실패가 이 횟수에 도달하면 회로를 연다. */
+    @Value("${ai.course.failure-threshold:2}")
+    private int failureThreshold;
+
+    /** 회로가 열려 있는 시간(초). 이 시간이 지나면 자동으로 재시도한다. */
+    @Value("${ai.course.circuit-open-seconds:120}")
+    private long circuitOpenSeconds;
+
+    public AiCourseClient(@Qualifier("aiRestTemplate") RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
 
+    /**
+     * 현재 AI 호출이 차단된 상태인지 여부.
+     *
+     * <p>호출자는 이 값으로 "AI를 못 썼다"는 사실만 알면 되고, 실패를 예외로 승격시켜서는 안 된다.
+     * 코스 추천에는 규칙 기반 폴백 경로가 이미 존재하므로 차단 상태에서도 서비스는 계속 동작한다.
+     */
     public boolean isBlocked() {
-        return blocked.get();
+        return isCircuitOpen();
+    }
+
+    private boolean isCircuitOpen() {
+        long openUntil = circuitOpenUntilMs.get();
+        if (openUntil == 0L) {
+            return false;
+        }
+        if (System.currentTimeMillis() >= openUntil) {
+            // 쿨다운 종료 → 반열림 상태로 전환해 다음 호출 1회를 시험 삼아 통과시킨다.
+            // 실패 카운터는 0이 아니라 임계값 직전으로 되돌려, 시험 호출이 한 번만 실패해도
+            // 곧바로 회로가 다시 닫히도록 한다. (계속 죽어 있는 API에 반복 요청하지 않기 위함)
+            if (circuitOpenUntilMs.compareAndSet(openUntil, 0L)) {
+                consecutiveFailures.set(Math.max(0, Math.max(1, failureThreshold) - 1));
+                log.info("[AI Course] 차단 쿨다운이 끝나 다음 요청에서 AI 호출을 한 번 시험합니다.");
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private void recordSuccess() {
+        if (consecutiveFailures.getAndSet(0) > 0) {
+            log.info("[AI Course] 호출이 정상 복구되었습니다.");
+        }
+        circuitOpenUntilMs.set(0L);
+    }
+
+    private void recordFailure() {
+        int failures = consecutiveFailures.incrementAndGet();
+        if (failures >= Math.max(1, failureThreshold)) {
+            long openSeconds = Math.max(10L, circuitOpenSeconds);
+            circuitOpenUntilMs.set(System.currentTimeMillis() + openSeconds * 1000L);
+            log.error("[AI Course] 연속 {}회 실패 - {}초 동안 AI 호출을 멈추고 규칙 기반 폴백으로 코스를 생성합니다.",
+                    failures, openSeconds);
+        } else {
+            log.warn("[AI Course] 호출 실패 {}/{} - 이번 요청은 규칙 기반 폴백으로 처리합니다.",
+                    failures, Math.max(1, failureThreshold));
+        }
+    }
+
+    private int attemptLimit() {
+        return Math.max(1, maxAttempts);
+    }
+
+    /**
+     * 한 번의 추천 요청을 실행한다. 성공하면 파싱 결과를, 실패하면 null을 반환한다.
+     * 빈 리스트(응답은 왔지만 쓸 만한 코스가 없음)와 호출 실패(null)를 구분하기 위해 null을 쓴다.
+     */
+    private List<AiCoursePlan> callWithRetry(HttpEntity<Map<String, Object>> request, ResponseParser parser) {
+        int attempts = attemptLimit();
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                String response = restTemplate.postForObject(baseUrl, request, String.class);
+                return parser.parse(response);
+            } catch (ResourceAccessException e) {
+                // 타임아웃/연결 실패는 즉시 재시도해도 같은 결과일 가능성이 높다.
+                log.warn("[AI Course] 코스 추천 API 응답 지연 또는 연결 실패 {}/{}: {}", attempt, attempts, e.getMessage());
+                break;
+            } catch (Exception e) {
+                log.warn("[AI Course] 코스 추천 API 호출 실패 {}/{}: {}", attempt, attempts, e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    @FunctionalInterface
+    private interface ResponseParser {
+        List<AiCoursePlan> parse(String response) throws Exception;
     }
 
     public List<AiCoursePlan> recommendCourses(
@@ -61,8 +158,8 @@ public class AiCourseClient {
             return List.of();
         }
 
-        if (blocked.get()) {
-            log.warn("[AI Course] 실패했습니다 - 이전 코스 추천 API 실패로 추가 호출을 차단합니다.");
+        if (isCircuitOpen()) {
+            log.warn("[AI Course] 회로가 열려 있어 이번 요청은 규칙 기반 폴백으로 처리합니다.");
             return List.of();
         }
 
@@ -83,23 +180,14 @@ public class AiCourseClient {
         ));
         body.put("response_format", Map.of("type", "json_object"));
 
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                String response = restTemplate.postForObject(baseUrl, new HttpEntity<>(body, headers), String.class);
-                return parsePlans(response, courseCount, placeCount, candidates);
-            } catch (Exception e) {
-                log.warn("[AI Course] 코스 추천 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
-            }
+        List<AiCoursePlan> plans = callWithRetry(new HttpEntity<>(body, headers),
+                response -> parsePlans(response, courseCount, placeCount, candidates));
+        if (plans == null) {
+            recordFailure();
+            return List.of();
         }
-
-        blockFurtherCalls();
-        return List.of();
-    }
-
-    private void blockFurtherCalls() {
-        if (blocked.compareAndSet(false, true)) {
-            log.error("[AI Course] 실패했습니다 - 코스 추천 API {}회 시도 실패로 추가 호출을 차단합니다.", MAX_ATTEMPTS);
-        }
+        recordSuccess();
+        return plans;
     }
 
     private String buildPrompt(
@@ -284,8 +372,8 @@ public class AiCourseClient {
         if (!enabled || isBlank(apiKey) || isBlank(baseUrl)) {
             return List.of();
         }
-        if (blocked.get()) {
-            log.warn("[AI Course] 실패했습니다 - 이전 코스 추천 API 실패로 추가 호출을 차단합니다.");
+        if (isCircuitOpen()) {
+            log.warn("[AI Course] 회로가 열려 있어 이번 요청은 규칙 기반 폴백으로 처리합니다.");
             return List.of();
         }
         List<Place> allCandidates = (extendedCandidates != null && !extendedCandidates.isEmpty())
@@ -310,17 +398,15 @@ public class AiCourseClient {
         ));
         body.put("response_format", Map.of("type", "json_object"));
 
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                String response = restTemplate.postForObject(baseUrl, new HttpEntity<>(body, headers), String.class);
-                return parsePlansWithExtended(response, courseCount, placeCount, extendedPlaceCount,
-                        standardCandidates, extendedCandidates);
-            } catch (Exception e) {
-                log.warn("[AI Course] 코스 추천 API 호출 실패 {}/{}: {}", attempt, MAX_ATTEMPTS, e.getMessage());
-            }
+        List<AiCoursePlan> plans = callWithRetry(new HttpEntity<>(body, headers),
+                response -> parsePlansWithExtended(response, courseCount, placeCount, extendedPlaceCount,
+                        standardCandidates, extendedCandidates));
+        if (plans == null) {
+            recordFailure();
+            return List.of();
         }
-        blockFurtherCalls();
-        return List.of();
+        recordSuccess();
+        return plans;
     }
 
     private String buildPromptWithExtended(

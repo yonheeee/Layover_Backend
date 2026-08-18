@@ -1,7 +1,6 @@
 package com.ssafy.layover.course;
 
 import com.ssafy.layover.bus.BusService;
-import com.ssafy.layover.common.exception.ExternalApiException;
 import com.ssafy.layover.common.exception.NotFoundException;
 import com.ssafy.layover.kakao.KakaoRouteApiClient;
 import com.ssafy.layover.place.Place;
@@ -107,8 +106,12 @@ public class CourseService {
 
         List<AiCourseClient.AiCoursePlan> aiPlans = aiCourseClient.recommendCourses(
                 req, candidates, extendedCandidates, placeCount, extendedPlaceCount, RECOMMENDED_COURSE_COUNT, List.of());
-        if (aiCourseClient.isBlocked()) {
-            throw new ExternalApiException("AI 코스 추천 호출에 실패했습니다.");
+        // AI 호출이 실패해도 코스 추천 자체를 실패시키지 않는다.
+        // 아래 폴백 경로가 시간 예산과 카테고리 규칙으로 동일한 품질 기준의 코스를 만들어 내며,
+        // 응답의 fallbackUsed 플래그로 프론트에 "규칙 보정"임을 정직하게 노출한다.
+        if (aiPlans.isEmpty()) {
+            log.warn("[Course] AI 추천 결과가 없어 규칙 기반 폴백으로 코스를 생성합니다. (aiBlocked={})",
+                    aiCourseClient.isBlocked());
         }
 
         // 코스 1, 2: 표준 예산 + 카테고리 제약 + 코스 간 중복 방지
@@ -183,8 +186,9 @@ public class CourseService {
 
         List<AiCourseClient.AiCoursePlan> aiPlans =
                 aiCourseClient.recommendCourses(req, candidates, placeCount, 1, lockedPlaceIds);
-        if (aiCourseClient.isBlocked()) {
-            throw new ExternalApiException("AI 코스 추천 호출에 실패했습니다.");
+        if (aiPlans.isEmpty()) {
+            log.warn("[Course] AI 재추천 결과가 없어 규칙 기반 폴백으로 코스를 재구성합니다. (aiBlocked={})",
+                    aiCourseClient.isBlocked());
         }
         List<Place> aiPicked = aiPlans.isEmpty()
                 ? List.of()
