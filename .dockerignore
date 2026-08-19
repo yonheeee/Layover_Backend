@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.vscode
+.mvn
+target
+logs
+uploads
+*.iml
+*.log
+.env
+.env.*
+**/application-local.properties
+**/application-secret.properties
+gha-creds-*.json

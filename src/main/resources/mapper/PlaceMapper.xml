@@ -103,6 +103,13 @@
 		</if>
 	</select>
 
+    <select id="countTourApiPlaces" resultType="int">
+        SELECT COUNT(*)
+        FROM places
+        WHERE tour_api_id IS NOT NULL
+          AND category != 'STATION'
+    </select>
+
     <insert id="upsertPlace">
         INSERT INTO places (
             name, category, original_category_code, address,

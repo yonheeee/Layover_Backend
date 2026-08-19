@@ -3,6 +3,7 @@ package com.ssafy.layover.place;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -19,8 +20,15 @@ public class StationPlaceSeeder {
 
     private final PlaceMapper placeMapper;
 
+    @Value("${place.station-seed.enabled:true}")
+    private boolean stationSeedEnabled;
+
     @PostConstruct
     public void seedOnStartup() {
+        if (!stationSeedEnabled) {
+            log.info("[StationPlaceSeeder] 역 기준 장소 초기 적재가 비활성화되어 있습니다.");
+            return;
+        }
         upsertStations();
     }
 
