@@ -26,6 +26,8 @@ public interface PlaceMapper {
                  @Param("keyword") String keyword,
                  @Param("district") String district);
 
+    int countTourApiPlaces();
+
     void upsertPlace(Place place);
 
     void upsertStationPlace(Place place);

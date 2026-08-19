@@ -3,12 +3,14 @@ package com.ssafy.layover.place;
 import com.ssafy.layover.place.dto.PlaceSyncResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "place.sync.scheduler-enabled", havingValue = "true", matchIfMissing = true)
 public class PlaceSyncScheduler {
 
     private final TourApiService tourApiService;
