@@ -77,6 +77,7 @@ jobs:
           secrets: |-
             /secrets/application-secrets.properties=layover-app-secrets:latest
             SPRING_DATASOURCE_PASSWORD=layover-db-password:latest
+            REDIS_PASSWORD=layover-redis-password:latest
             AWS_ACCESS_KEY_ID=layover-aws-access-key-id:latest
             AWS_SECRET_ACCESS_KEY=layover-aws-secret-access-key:latest
           secrets_update_strategy: overwrite
