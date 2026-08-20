@@ -64,6 +64,8 @@ jobs:
           env_vars: |-
             SPRING_PROFILES_ACTIVE=prod
             SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/secrets/application-secrets.properties
+            APP_FRONTEND_URL=https://layover-frontend.pages.dev
+            APP_CORS_ALLOWED_ORIGINS=https://layover-frontend.pages.dev
             SPRING_DATASOURCE_URL=${{ vars.SPRING_DATASOURCE_URL }}
             SPRING_DATASOURCE_USERNAME=${{ vars.SPRING_DATASOURCE_USERNAME }}
             SPRING_DATA_REDIS_HOST=simple-martin-168901.upstash.io
