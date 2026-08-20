@@ -68,6 +68,7 @@ jobs:
             SPRING_DATASOURCE_USERNAME=${{ vars.SPRING_DATASOURCE_USERNAME }}
             REDIS_HOST=simple-martin-168901.upstash.io
             REDIS_PORT=6379
+            REDIS_USERNAME=default
             REDIS_SSL_ENABLED=true
             STORAGE_TYPE=s3
             AWS_REGION=ap-northeast-2
