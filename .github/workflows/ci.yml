@@ -66,7 +66,7 @@ jobs:
             SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/secrets/application-secrets.properties
             SPRING_DATASOURCE_URL=${{ vars.SPRING_DATASOURCE_URL }}
             SPRING_DATASOURCE_USERNAME=${{ vars.SPRING_DATASOURCE_USERNAME }}
-            REDIS_HOST=${{ vars.REDIS_HOST }}
+            REDIS_HOST=simple-martin-168901.upstash.io
             REDIS_PORT=6379
             REDIS_SSL_ENABLED=true
             STORAGE_TYPE=s3
