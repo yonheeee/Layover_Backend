@@ -3,39 +3,59 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ssafy.layover.character.CharacterMapper">
 
+    <!--
+      MyBatisConfig 가 mapUnderscoreToCamelCase(false) 이므로
+      스네이크 케이스 컬럼은 반드시 명시적으로 매핑해야 한다.
+    -->
     <resultMap id="CharacterResultMap" type="com.ssafy.layover.character.Character">
         <id     column="id"              property="id"/>
+        <result column="code"            property="code"/>
         <result column="name"            property="name"/>
+        <result column="kind"            property="kind"/>
+        <result column="theme"           property="theme"/>
+        <result column="base_char"       property="baseChar"/>
+        <result column="description"     property="description"/>
         <result column="image_url"       property="imageUrl"/>
         <result column="required_stamps" property="requiredStamps"/>
-        <result column="description"     property="description"/>
     </resultMap>
 
     <select id="findAll" resultMap="CharacterResultMap">
-        SELECT * FROM characters ORDER BY required_stamps ASC
+        SELECT * FROM characters ORDER BY base_char, code
     </select>
 
-    <select id="findByUserId" resultMap="CharacterResultMap">
-        SELECT c.*
-        FROM characters c
-        JOIN user_characters uc ON c.id = uc.character_id
+    <select id="findById" resultMap="CharacterResultMap">
+        SELECT * FROM characters WHERE id = #{id}
+    </select>
+
+    <!--
+      ORDER BY 를 빼면 안 된다. 뽑기는 인덱스로 원소를 고르므로
+      행 순서가 흔들리면 같은 상황에서 다른 결과가 나올 수 있다.
+    -->
+    <select id="findDrawPool" resultMap="CharacterResultMap">
+        SELECT * FROM characters WHERE theme IS NULL ORDER BY code
+    </select>
+
+    <select id="findByThemes" resultMap="CharacterResultMap">
+        SELECT * FROM characters
+        WHERE theme IN
+        <foreach item="t" collection="themes" open="(" separator="," close=")">#{t}</foreach>
+        ORDER BY code
+    </select>
+
+    <select id="findOwnedByUserId" resultType="com.ssafy.layover.character.OwnedCharacterResponse">
+        SELECT c.code                AS code,
+               COUNT(uc.id)          AS `count`,
+               MIN(uc.obtained_at)   AS firstObtainedAt
+        FROM user_characters uc
+        JOIN characters c ON c.id = uc.character_id
         WHERE uc.user_id = #{userId}
-        ORDER BY uc.obtained_at ASC
-    </select>
-
-    <select id="findByRequiredStamps" resultMap="CharacterResultMap">
-        SELECT * FROM characters WHERE required_stamps = #{count} LIMIT 1
+        GROUP BY c.code
+        ORDER BY firstObtainedAt
     </select>
 
     <insert id="insertUserCharacter" parameterType="com.ssafy.layover.character.UserCharacter">
-        INSERT INTO user_characters (id, user_id, character_id, obtained_at)
-        VALUES (#{id}, #{userId}, #{characterId}, #{obtainedAt})
+        INSERT INTO user_characters (id, user_id, character_id, stamp_id, place_id, photo_url, obtained_at)
+        VALUES (#{id}, #{userId}, #{characterId}, #{stampId}, #{placeId}, #{photoUrl}, #{obtainedAt})
     </insert>
-
-    <select id="existsUserCharacter" resultType="boolean">
-        SELECT COUNT(*) > 0
-        FROM user_characters
-        WHERE user_id = #{userId} AND character_id = #{characterId}
-    </select>
 
 </mapper>

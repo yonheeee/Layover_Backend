@@ -25,10 +25,13 @@
         ORDER BY s.visited_at DESC
     </select>
 
-    <select id="existsByUserIdAndPlaceId" resultType="boolean">
-        SELECT COUNT(*) > 0
+    <select id="existsByUserIdAndPlaceIdBetween" resultType="boolean">
+        SELECT COUNT(*) &gt; 0
         FROM stamps
-        WHERE user_id = #{userId} AND place_id = #{placeId}
+        WHERE user_id = #{userId}
+          AND place_id = #{placeId}
+          AND visited_at &gt;= #{from}
+          AND visited_at &lt; #{to}
     </select>
 
 </mapper>

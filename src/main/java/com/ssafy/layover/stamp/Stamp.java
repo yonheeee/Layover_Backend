@@ -3,6 +3,7 @@ package com.ssafy.layover.stamp;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 @Getter
@@ -25,7 +26,9 @@ public class Stamp {
         s.userId = userId;
         s.placeId = placeId;
         s.photoUrl = photoUrl;
-        s.visitedAt = LocalDateTime.now();
+        // JVM 기본 타임존에 맡기면 배포 서버가 UTC일 때 9시간 어긋나고,
+        // 하루 1회 판정과 visited_on 생성 컬럼이 함께 틀어진다.
+        s.visitedAt = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
         return s;
     }
 }
