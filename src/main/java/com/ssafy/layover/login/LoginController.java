@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.login.dto.LoginRequest;
@@ -19,7 +20,9 @@ import com.ssafy.layover.login.dto.LoginResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/login")
@@ -49,11 +52,26 @@ public class LoginController {
             String refreshToken = (String) result.get("refreshToken");
             boolean needsProfile = (boolean) result.get("needsProfile");
 
-response.sendRedirect(frontendUrl + "/login?accessToken=" + accessToken
-        + "&refreshToken=" + refreshToken
-        + "&needsProfile=" + needsProfile);
+            String successUrl = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .path("/login")
+                    .queryParam("accessToken", accessToken)
+                    .queryParam("refreshToken", refreshToken)
+                    .queryParam("needsProfile", needsProfile)
+                    .build()
+                    .encode()
+                    .toUriString();
+            response.sendRedirect(successUrl);
         } catch (RuntimeException e) {
-            response.sendRedirect(frontendUrl + "/login?error=withdrawn");
+            boolean withdrawn = "탈퇴한 회원입니다.".equals(e.getMessage());
+            String errorCode = withdrawn ? "withdrawn" : "kakao_login_failed";
+            log.warn("[KakaoLogin] callback failed (type={})", e.getClass().getSimpleName());
+            String failureUrl = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .path("/login")
+                    .queryParam("error", errorCode)
+                    .build()
+                    .encode()
+                    .toUriString();
+            response.sendRedirect(failureUrl);
         }
     }
 }

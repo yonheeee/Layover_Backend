@@ -36,12 +36,13 @@ public class CourseStopResponse {
         this.lng = place.getLongitude() != null ? place.getLongitude().doubleValue() : 0;
         this.nextTransport = nextTransport;
 
-        boolean isWalk = "WALK".equals(travelMode);
-        this.transport = isWalk ? "walk" : "taxi";
+        boolean isWalk = "WALK".equalsIgnoreCase(travelMode);
+        boolean isTransit = "PUBLIC_TRANSIT".equalsIgnoreCase(travelMode) || "BUS".equalsIgnoreCase(travelMode);
+        this.transport = isWalk ? "walk" : (isTransit ? "bus" : "taxi");
         this.transportTime = nextTransport != null
-                ? (isWalk ? nextTransport.getWalkTime() : nextTransport.getTaxiTime())
+                ? (isWalk ? nextTransport.getWalkTime() : (isTransit ? nextTransport.getBusTime() : nextTransport.getTaxiTime()))
                 : null;
-        this.taxiFare = (nextTransport != null && !isWalk && nextTransport.getTaxiFare() > 0)
+        this.taxiFare = (nextTransport != null && !isWalk && !isTransit && nextTransport.getTaxiFare() > 0)
                 ? String.format("%,d원", nextTransport.getTaxiFare())
                 : null;
     }

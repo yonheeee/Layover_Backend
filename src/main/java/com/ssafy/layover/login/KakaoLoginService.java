@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
@@ -36,13 +37,18 @@ public class KakaoLoginService {
     private String adminKey;
 
     public String getKakaoAuthUrl() {
-        return "https://kauth.kakao.com/oauth/authorize"
-                + "?response_type=code"
-                + "&client_id=" + clientId
-                + "&redirect_uri=" + redirectUri;
+        requireOAuthConfig();
+        return UriComponentsBuilder.fromUriString("https://kauth.kakao.com/oauth/authorize")
+                .queryParam("response_type", "code")
+                .queryParam("client_id", clientId)
+                .queryParam("redirect_uri", redirectUri)
+                .build()
+                .encode()
+                .toUriString();
     }
 
     public String getKakaoToken(String code) {
+        requireOAuthConfig();
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
@@ -51,7 +57,9 @@ public class KakaoLoginService {
         params.add("client_id", clientId);
         params.add("redirect_uri", redirectUri);
         params.add("code", code);
-        params.add("client_secret", clientSecret);
+        if (clientSecret != null && !clientSecret.isBlank()) {
+            params.add("client_secret", clientSecret);
+        }
 
         HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
 
@@ -61,7 +69,11 @@ public class KakaoLoginService {
                 Map.class
         );
 
-        return (String) response.getBody().get("access_token");
+        Map body = response.getBody();
+        if (body == null || !(body.get("access_token") instanceof String accessToken) || accessToken.isBlank()) {
+            throw new IllegalStateException("카카오 액세스 토큰 응답이 비어 있습니다.");
+        }
+        return accessToken;
     }
 
     public KakaoUserInfo getKakaoUserInfo(String accessToken) {
@@ -117,6 +129,15 @@ public class KakaoLoginService {
                 "refreshToken", refreshToken,
                 "needsProfile", needsProfile
                 );
+    }
+
+    private void requireOAuthConfig() {
+        if (clientId == null || clientId.isBlank()) {
+            throw new IllegalStateException("kakao.client-id 설정이 비어 있습니다.");
+        }
+        if (redirectUri == null || redirectUri.isBlank()) {
+            throw new IllegalStateException("kakao.redirect-uri 설정이 비어 있습니다.");
+        }
     }
 
     public void unlinkKakao(String kakaoId) {

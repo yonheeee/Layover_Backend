@@ -37,9 +37,15 @@ public class KakaoRouteApiClient {
         }
     }
 
-    public record PublicTransitRouteResult(int minutes) {
+    public record TransitStep(String type, String guidance, int minutes,
+                              List<String> vehicles, List<String> stops, List<double[]> path) {
+    }
+
+    public record PublicTransitRouteResult(int minutes, int transfers, int fare,
+                                           String routeType, List<double[]> path,
+                                           List<TransitStep> steps) {
         public static PublicTransitRouteResult failed() {
-            return new PublicTransitRouteResult(-1);
+            return new PublicTransitRouteResult(-1, -1, -1, "", Collections.emptyList(), Collections.emptyList());
         }
     }
 
@@ -68,6 +74,10 @@ public class KakaoRouteApiClient {
                     .toUri();
 
             Map<?, ?> response = get(uri);
+            if (!"OK".equals(response.get("status"))) {
+                log.warn("[KakaoRoute] walk route returned status={}", response.get("status"));
+                return WalkRouteResult.failed();
+            }
             Map<?, ?> route = asMap(response.get("route"));
             Map<?, ?> properties = route != null ? asMap(route.get("properties")) : null;
             int totalSeconds = intValue(properties, "totalTime", -1);
@@ -99,13 +109,24 @@ public class KakaoRouteApiClient {
                     .toUri();
 
             Map<?, ?> response = get(uri);
+            if (!"OK".equals(response.get("status"))) {
+                log.warn("[KakaoRoute] public transit route returned status={}", response.get("status"));
+                return PublicTransitRouteResult.failed();
+            }
             List<?> routes = asList(response.get("routes"));
             if (routes == null || routes.isEmpty()) return PublicTransitRouteResult.failed();
             Map<?, ?> firstRoute = asMap(routes.get(0));
             Map<?, ?> properties = firstRoute != null ? asMap(firstRoute.get("properties")) : null;
             int minutes = secondsToMinutes(intValue(properties, "totalTime", -1));
-            log.info("[KakaoRoute] public transit route completed - {} minutes", minutes);
-            return new PublicTransitRouteResult(minutes);
+            int transfers = intValue(properties, "transfers", -1);
+            Map<?, ?> fareInfo = properties != null ? asMap(properties.get("fare")) : null;
+            int fare = intValue(fareInfo, "value", -1);
+            String routeType = stringValue(properties, "type");
+            List<TransitStep> steps = extractTransitSteps(firstRoute);
+            List<double[]> path = steps.stream().flatMap(step -> step.path().stream()).toList();
+            log.info("[KakaoRoute] public transit route completed - {} minutes, {} transfers, {} points",
+                    minutes, transfers, path.size());
+            return new PublicTransitRouteResult(minutes, transfers, fare, routeType, path, steps);
         } catch (Exception e) {
             log.warn("[KakaoRoute] public transit route failed: {}", e.getMessage());
             return PublicTransitRouteResult.failed();
@@ -181,6 +202,63 @@ public class KakaoRouteApiClient {
         return value instanceof Number ? ((Number) value).intValue() : defaultValue;
     }
 
+    private String stringValue(Map<?, ?> map, String key) {
+        if (map == null) return "";
+        Object value = map.get(key);
+        return value instanceof String ? (String) value : "";
+    }
+
+    private List<String> extractNames(Object value) {
+        List<?> items = asList(value);
+        if (items == null) return Collections.emptyList();
+        List<String> names = new ArrayList<>();
+        for (Object itemObj : items) {
+            String name = stringValue(asMap(itemObj), "name");
+            if (!name.isBlank() && !names.contains(name)) names.add(name);
+        }
+        return names;
+    }
+
+    private List<TransitStep> extractTransitSteps(Map<?, ?> route) {
+        if (route == null) return Collections.emptyList();
+        List<?> stepItems = asList(route.get("steps"));
+        if (stepItems == null) return Collections.emptyList();
+
+        List<TransitStep> steps = new ArrayList<>();
+        for (Object stepObj : stepItems) {
+            Map<?, ?> step = asMap(stepObj);
+            if (step == null) continue;
+            Map<?, ?> properties = asMap(step.get("properties"));
+            Map<?, ?> pathInfo = asMap(step.get("path"));
+            List<double[]> path = extractPoints(pathInfo != null ? pathInfo.get("points") : null);
+            steps.add(new TransitStep(
+                    stringValue(properties, "type"),
+                    stringValue(properties, "guidance"),
+                    secondsToMinutes(intValue(properties, "time", -1)),
+                    extractNames(properties != null ? properties.get("vehicles") : null),
+                    extractNames(properties != null ? properties.get("stops") : null),
+                    path
+            ));
+        }
+        return steps;
+    }
+
+    private List<double[]> extractPoints(Object value) {
+        List<?> points = asList(value);
+        if (points == null) return Collections.emptyList();
+        List<double[]> path = new ArrayList<>();
+        for (Object pointObj : points) {
+            List<?> point = asList(pointObj);
+            if (point != null && point.size() >= 2
+                    && point.get(0) instanceof Number && point.get(1) instanceof Number) {
+                double lng = ((Number) point.get(0)).doubleValue();
+                double lat = ((Number) point.get(1)).doubleValue();
+                path.add(new double[]{lat, lng});
+            }
+        }
+        return path;
+    }
+
     private List<double[]> extractWalkPath(Map<?, ?> route) {
         if (route == null) return Collections.emptyList();
 
@@ -200,16 +278,7 @@ public class KakaoRouteApiClient {
                 List<?> points = stepPath != null ? asList(stepPath.get("points")) : null;
                 if (points == null) continue;
 
-                for (Object pointObj : points) {
-                    List<?> point = asList(pointObj);
-                    if (point != null && point.size() >= 2
-                            && point.get(0) instanceof Number
-                            && point.get(1) instanceof Number) {
-                        double lng = ((Number) point.get(0)).doubleValue();
-                        double lat = ((Number) point.get(1)).doubleValue();
-                        path.add(new double[]{lat, lng});
-                    }
-                }
+                path.addAll(extractPoints(points));
             }
         }
         return path;

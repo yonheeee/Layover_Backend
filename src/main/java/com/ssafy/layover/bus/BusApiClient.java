@@ -65,7 +65,8 @@ public class BusApiClient {
 
     private List<BusStop> fetchPage(int page) throws Exception {
         String url = BASE_URL + "?serviceKey=" + serviceKey + "&reqPage=" + page;
-        log.info("버스 API 요청 URL: {}", url);
+        // URL에는 공공데이터 API 키가 포함되므로 로그에 절대 남기지 않는다.
+        log.debug("버스 API {}페이지 요청", page);
         String xml = restTemplate.getForObject(url, String.class);
         if (xml == null || xml.isBlank()) return List.of();
         return parseStops(xml);

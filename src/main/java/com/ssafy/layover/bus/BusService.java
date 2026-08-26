@@ -21,15 +21,13 @@ public class BusService {
     // 가장 가까운 버스 정류소까지 도보 + 버스 대기 + 버스 이동 + 도착지 도보
     public int estimateBusMinutes(double fromLat, double fromLng, double toLat, double toLng) {
         if (!enabled) {
-            return -1;
+            return estimateByDistance(fromLat, fromLng, toLat, toLng);
         }
         Optional<BusStop> fromStop = findNearestStop(fromLat, fromLng);
         Optional<BusStop> toStop   = findNearestStop(toLat, toLng);
 
         if (fromStop.isEmpty() || toStop.isEmpty()) {
-            // 정류소 데이터 없으면 직선거리 기반 추정
-            double dist = haversine(fromLat, fromLng, toLat, toLng);
-            return Math.max(5, (int) Math.round(dist / 20.0 * 60) + 5);
+            return estimateByDistance(fromLat, fromLng, toLat, toLng);
         }
 
         double walkToStop    = haversine(fromLat, fromLng, fromStop.get().lat(), fromStop.get().lng());
@@ -47,6 +45,16 @@ public class BusService {
 
     public List<BusStop> getAllStops() {
         return List.copyOf(busApiClient.getAllStops());
+    }
+
+    /** 실제 정류장 좌표를 사용한 추정인지 응답 출처에 표시하기 위한 상태값이다. */
+    public boolean hasStopData() {
+        return enabled && !busApiClient.getAllStops().isEmpty();
+    }
+
+    private int estimateByDistance(double fromLat, double fromLng, double toLat, double toLng) {
+        double dist = haversine(fromLat, fromLng, toLat, toLng);
+        return Math.max(5, (int) Math.round(dist / 20.0 * 60) + 5);
     }
 
     private Optional<BusStop> findNearestStop(double lat, double lng) {

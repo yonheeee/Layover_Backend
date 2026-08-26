@@ -6,6 +6,7 @@ import com.ssafy.layover.kakao.KakaoRouteApiClient;
 import com.ssafy.layover.place.Place;
 import com.ssafy.layover.place.PlaceMapper;
 import com.ssafy.layover.place.StationPlaceSeeder;
+import com.ssafy.layover.tmap.TMapApiClient;
 import com.ssafy.layover.weather.WeatherService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +39,7 @@ public class CourseService {
     private final CoursePlaceMapper coursePlaceMapper;
     private final BusService busService;
     private final KakaoRouteApiClient kakaoRouteApiClient;
+    private final TMapApiClient tMapApiClient;
     private final AiCourseClient aiCourseClient;
     private final WeatherService weatherService;
 
@@ -55,6 +57,7 @@ public class CourseService {
     public CourseService(PlaceMapper placeMapper, CourseMapper courseMapper,
                          CoursePlaceMapper coursePlaceMapper, BusService busService,
                          KakaoRouteApiClient kakaoRouteApiClient,
+                         TMapApiClient tMapApiClient,
                          AiCourseClient aiCourseClient,
                          WeatherService weatherService) {
         this.placeMapper = placeMapper;
@@ -62,6 +65,7 @@ public class CourseService {
         this.coursePlaceMapper = coursePlaceMapper;
         this.busService = busService;
         this.kakaoRouteApiClient = kakaoRouteApiClient;
+        this.tMapApiClient = tMapApiClient;
         this.aiCourseClient = aiCourseClient;
         this.weatherService = weatherService;
     }
@@ -801,8 +805,8 @@ public class CourseService {
         TransportInfoResponse returnTransport = null;
         if (!places.isEmpty()) {
             departureTransport = cachedTransport(station, places.get(0), travelMode, transportCache, calculateAllRouteModes);
-            totalMinutes += parseMin("WALK".equals(travelMode) ? departureTransport.getWalkTime() : departureTransport.getTaxiTime());
-            if (!"WALK".equals(travelMode)) totalFare += departureTransport.getTaxiFare();
+            totalMinutes += parseMin(selectedTravelTime(departureTransport, travelMode));
+            totalFare += selectedTravelFare(departureTransport, travelMode);
             stops.add(new CourseStopResponse(station, "0분", departureTransport, travelMode));
         }
 
@@ -814,15 +818,13 @@ public class CourseService {
             TransportInfoResponse transport = null;
             if (i < places.size() - 1) {
                 transport = cachedTransport(cur, places.get(i + 1), travelMode, transportCache, calculateAllRouteModes);
-                boolean isWalk = "WALK".equals(travelMode);
-                totalMinutes += parseMin(isWalk ? transport.getWalkTime() : transport.getTaxiTime());
-                if (!isWalk) totalFare += transport.getTaxiFare();
+                totalMinutes += parseMin(selectedTravelTime(transport, travelMode));
+                totalFare += selectedTravelFare(transport, travelMode);
             }
             if (i == places.size() - 1) {
                 returnTransport = cachedTransport(cur, station, travelMode, transportCache, calculateAllRouteModes);
-                boolean isWalk = "WALK".equals(travelMode);
-                totalMinutes += parseMin(isWalk ? returnTransport.getWalkTime() : returnTransport.getTaxiTime());
-                if (!isWalk) totalFare += returnTransport.getTaxiFare();
+                totalMinutes += parseMin(selectedTravelTime(returnTransport, travelMode));
+                totalFare += selectedTravelFare(returnTransport, travelMode);
                 transport = returnTransport;
             }
             stops.add(new CourseStopResponse(cur, stayTime, transport, travelMode));
@@ -897,8 +899,21 @@ public class CourseService {
         List<double[]> routePath = List.of();
         String walkSource = "ESTIMATED";
         String taxiSource = "ESTIMATED";
-        String busSource = "UNAVAILABLE";
-        String routePathSource = "STRAIGHT_LINE";
+        String busSource = "ESTIMATED";
+        String routePathSource = "UNAVAILABLE";
+        String walkPathSource = "UNAVAILABLE";
+        String carPathSource = "UNAVAILABLE";
+
+        List<double[]> walkPath = List.of();
+        List<double[]> transitPath = List.of();
+        List<double[]> carPath = List.of();
+        int busMin = -1;
+        int busFare = 0;
+        int busTransfers = -1;
+        String busRouteType = "";
+        List<String> busVehicles = List.of();
+        List<String> busStops = List.of();
+        List<TransitStepResponse> busSteps = List.of();
 
         if (calculateAllRouteModes || "WALK".equals(travelMode)) {
             KakaoRouteApiClient.WalkRouteResult walkResult = kakaoRouteApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
@@ -907,9 +922,45 @@ public class CourseService {
                 walkSource = "KAKAO";
             }
             if (!walkResult.path().isEmpty()) {
-                routePath = walkResult.path();
-                routePathSource = "KAKAO";
+                walkPath = walkResult.path();
+                walkPathSource = "KAKAO";
             }
+
+            if (walkResult.minutes() <= 0 || walkPath.isEmpty()) {
+                TMapApiClient.WalkRouteResult fallback = tMapApiClient.getWalkRouteResult(fLat, fLng, tLat, tLng);
+                if (walkResult.minutes() <= 0 && fallback.minutes() > 0) {
+                    walkMin = fallback.minutes();
+                    walkSource = "TMAP";
+                }
+                if (walkPath.isEmpty() && !fallback.path().isEmpty()) {
+                    walkPath = fallback.path();
+                    walkPathSource = "TMAP";
+                }
+            }
+        }
+
+        KakaoRouteApiClient.PublicTransitRouteResult transitResult =
+                kakaoRouteApiClient.getPublicTransitRouteResult(fLat, fLng, tLat, tLng);
+        if (transitResult.minutes() > 0) {
+            busMin = transitResult.minutes();
+            busFare = Math.max(0, transitResult.fare());
+            busTransfers = transitResult.transfers();
+            busRouteType = transitResult.routeType();
+            transitPath = transitResult.path();
+            busSource = "KAKAO";
+            busSteps = transitResult.steps().stream()
+                    .map(step -> new TransitStepResponse(step.type(), step.guidance(), step.minutes(),
+                            step.vehicles(), step.stops()))
+                    .toList();
+            busVehicles = transitResult.steps().stream()
+                    .flatMap(step -> step.vehicles().stream()).distinct().toList();
+            busStops = transitResult.steps().stream()
+                    .flatMap(step -> step.stops().stream()).distinct().toList();
+        }
+
+        if (busMin <= 0) {
+            busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
+            busSource = busService.hasStopData() ? "BUS_STOP_ESTIMATE" : "ESTIMATED";
         }
         if (calculateAllRouteModes || !"WALK".equals(travelMode)) {
             KakaoRouteApiClient.CarRouteResult carResult = kakaoRouteApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
@@ -921,28 +972,60 @@ public class CourseService {
                 fare = carResult.taxiFare();
                 taxiSource = "KAKAO_MOBILITY";
             }
-            if (routePath.isEmpty() && !carResult.path().isEmpty()) {
-                routePath = carResult.path();
-                routePathSource = "KAKAO_MOBILITY";
+            if (!carResult.path().isEmpty()) {
+                carPath = carResult.path();
+                carPathSource = "KAKAO_MOBILITY";
+            }
+
+            if (carResult.minutes() <= 0 || carPath.isEmpty()) {
+                TMapApiClient.CarRouteResult fallback = tMapApiClient.getCarRouteResult(fLat, fLng, tLat, tLng);
+                if (fallback.minutes() > 0) {
+                    taxiMin = fallback.minutes();
+                    taxiSource = "TMAP";
+                }
+                if (fallback.taxiFare() > 0) {
+                    fare = fallback.taxiFare();
+                    taxiSource = "TMAP";
+                }
+                if (!fallback.path().isEmpty()) {
+                    carPath = fallback.path();
+                    carPathSource = "TMAP";
+                }
             }
         }
 
-        KakaoRouteApiClient.PublicTransitRouteResult transitResult =
-                kakaoRouteApiClient.getPublicTransitRouteResult(fLat, fLng, tLat, tLng);
-        int busMin;
-        if (transitResult.minutes() > 0) {
-            busMin = transitResult.minutes();
-            busSource = "KAKAO";
-        } else {
-            busMin = busService.estimateBusMinutes(fLat, fLng, tLat, tLng);
-            if (busMin > 0) {
-                busSource = "BUS_STOP_ESTIMATE";
-            }
+        if ("WALK".equalsIgnoreCase(travelMode) && !walkPath.isEmpty()) {
+            routePath = walkPath;
+            routePathSource = walkPathSource;
+        } else if (isTransitMode(travelMode) && !transitPath.isEmpty()) {
+            routePath = transitPath;
+            routePathSource = busSource;
+        } else if (!carPath.isEmpty()) {
+            routePath = carPath;
+            routePathSource = carPathSource;
         }
 
         String busTime = busMin > 0 ? busMin + "분" : "정보 없음";
         return new TransportInfoResponse(walkMin + "분", busTime, taxiMin + "분", fare, routePath,
-                walkSource, busSource, taxiSource, routePathSource);
+                walkSource, busSource, taxiSource, routePathSource,
+                walkPath, transitPath, carPath, busFare, busTransfers, busRouteType,
+                busVehicles, busStops, busSteps);
+    }
+
+    private boolean isTransitMode(String travelMode) {
+        return "PUBLIC_TRANSIT".equalsIgnoreCase(travelMode) || "BUS".equalsIgnoreCase(travelMode);
+    }
+
+    private String selectedTravelTime(TransportInfoResponse transport, String travelMode) {
+        if ("WALK".equalsIgnoreCase(travelMode)) return transport.getWalkTime();
+        if (isTransitMode(travelMode)) return transport.getBusTime();
+        return transport.getTaxiTime();
+    }
+
+    private int selectedTravelFare(TransportInfoResponse transport, String travelMode) {
+        if (isTransitMode(travelMode)) return Math.max(0, transport.getBusFare());
+        if (!"WALK".equalsIgnoreCase(travelMode)) return Math.max(0, transport.getTaxiFare());
+        return 0;
     }
 
     private double haversine(double lat1, double lon1, double lat2, double lon2) {

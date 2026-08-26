@@ -66,6 +66,8 @@ jobs:
             SPRING_CONFIG_ADDITIONAL_LOCATION=optional:file:/secrets/application-secrets.properties
             APP_FRONTEND_URL=https://layover-frontend.pages.dev
             APP_CORS_ALLOWED_ORIGINS=https://layover-frontend.pages.dev
+            KAKAO_REDIRECT_URI=https://layover-backend-287884089422.asia-northeast1.run.app/api/login/kakao/callback
+            ROUTE_BUS_STOP_ESTIMATION_ENABLED=true
             SPRING_DATASOURCE_URL=${{ vars.SPRING_DATASOURCE_URL }}
             SPRING_DATASOURCE_USERNAME=${{ vars.SPRING_DATASOURCE_USERNAME }}
             SPRING_DATA_REDIS_HOST=simple-martin-168901.upstash.io
@@ -83,6 +85,9 @@ jobs:
             SPRING_DATA_REDIS_PASSWORD=layover-redis-password:3
             AWS_ACCESS_KEY_ID=layover-aws-access-key-id:latest
             AWS_SECRET_ACCESS_KEY=layover-aws-secret-access-key:latest
+            KAKAO_CLIENT_ID=layover-kakao-client-id:latest
+            KAKAO_CLIENT_SECRET=layover-kakao-client-secret:latest
+            KAKAO_REST_API_KEY=layover-kakao-client-id:latest
           secrets_update_strategy: overwrite
           flags: >-
             --allow-unauthenticated
