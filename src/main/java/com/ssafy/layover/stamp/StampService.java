@@ -40,9 +40,21 @@ public class StampService {
     @Value("${stamp.verification.enabled:true}")
     private boolean verificationEnabled;
 
-    /** 스탬프를 인정하는 반경(m). 프론트엔드와 같은 값을 쓴다. */
+    /** 스탬프를 인정하는 기본 반경(m). 여기에 측위 오차를 더해 판정한다. */
     @Value("${stamp.verification.radius-meters:100}")
     private double verificationRadiusMeters;
+
+    /**
+     * 이 값을 넘는 측위 오차는 판정에 쓰지 않는다.
+     * 기지국 측위로 떨어지면 500~3000m가 나오는데, 그런 좌표로 100m 반경을
+     * 따지는 건 의미가 없다. 거절하는 대신 재시도를 안내한다.
+     */
+    @Value("${stamp.verification.accuracy-limit-meters:200}")
+    private double accuracyLimitMeters;
+
+    /** 반경에 더해줄 오차의 상한(m). */
+    @Value("${stamp.verification.accuracy-allowance-meters:200}")
+    private double accuracyAllowanceMeters;
 
     /**
      * 스탬프를 저장하고 캐릭터를 확정한다.
@@ -63,7 +75,8 @@ public class StampService {
             throw new DuplicateException("오늘 이미 방문한 장소입니다.");
         }
 
-        Place place = verifyLocation(req);
+        Place place = verifyLocation(
+                req.getPlaceId(), req.getLatitude(), req.getLongitude(), req.getAccuracy());
 
         Character chosen = resolveCharacter(userId, place, req.getCharacterId());
 
@@ -106,12 +119,24 @@ public class StampService {
 
     /**
      * 사용자가 실제로 그 장소 근처에 있는지 확인한다.
-     * 장소에 좌표가 없으면 검증할 방법이 없으므로 통과시킨다.
+     *
+     * <p>촬영 직전 확인({@code POST /api/stamps/verify-location})과 저장
+     * ({@code POST /api/stamps})이 같은 메서드를 쓴다. 판정 규칙이 한 곳에만
+     * 있어야 두 경로가 어긋나지 않는다.
+     *
+     * <p>측위 오차를 두 단계로 반영한다.
+     * <ol>
+     *   <li>오차가 {@code accuracy-limit-meters}를 넘으면 좌표를 믿지 않고 재시도를 안내</li>
+     *   <li>남은 좌표는 반경에 오차만큼(상한 있음)을 더해 판정</li>
+     * </ol>
+     *
+     * <p>장소에 좌표가 없으면 검증할 방법이 없으므로 통과시킨다.
+     * 좌표는 판정에만 쓰고 저장하지 않는다.
      *
      * @return 조회한 장소. 호출부에서 재조회하지 않도록 그대로 돌려준다.
      */
-    private Place verifyLocation(SaveStampRequest req) {
-        Place place = placeMapper.findById(req.getPlaceId());
+    public Place verifyLocation(String placeId, Double latitude, Double longitude, Double accuracy) {
+        Place place = placeMapper.findById(placeId);
         if (place == null) {
             throw new NotFoundException("장소를 찾을 수 없습니다.");
         }
@@ -126,15 +151,27 @@ public class StampService {
             return place;
         }
 
-        if (req.getLatitude() == null || req.getLongitude() == null) {
+        if (latitude == null || longitude == null) {
             throw new IllegalArgumentException("위치 정보가 필요합니다. 위치 권한을 허용해주세요.");
         }
 
+        // 1단계 — 믿을 수 있는 좌표인가
+        if (accuracy != null && accuracy > accuracyLimitMeters) {
+            log.info("[Stamp] 측위 오차 {}m 가 허용치 {}m 를 넘어 재시도를 안내합니다.",
+                    Math.round(accuracy), Math.round(accuracyLimitMeters));
+            throw new IllegalArgumentException("GPS 신호가 약해요. 실외로 나가서 다시 시도해주세요.");
+        }
+
+        // 2단계 — 오차를 감안한 거리 판정
+        // accuracy 가 없으면(구버전 클라이언트) 여유를 주지 않아 기존과 같게 동작한다.
+        double tolerance = (accuracy == null) ? 0 : Math.min(accuracy, accuracyAllowanceMeters);
+        double allowedMeters = verificationRadiusMeters + tolerance;
+
         double distance = distanceMeters(
-                req.getLatitude(), req.getLongitude(),
+                latitude, longitude,
                 place.getLatitude().doubleValue(), place.getLongitude().doubleValue());
 
-        if (distance > verificationRadiusMeters) {
+        if (distance > allowedMeters) {
             throw new IllegalArgumentException(
                     String.format("장소에서 너무 멀리 있습니다. (약 %.0fm 떨어져 있어요)", distance));
         }

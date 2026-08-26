@@ -28,4 +28,7 @@ public class SaveStampRequest {
      */
     private Double latitude;
     private Double longitude;
+
+    /** 측위 오차 반경(m). 촬영 직전 확인 때와 같은 값을 보낸다. */
+    private Double accuracy;
 }
