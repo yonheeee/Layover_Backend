@@ -3,32 +3,40 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.ssafy.layover.stamp.StampMapper">
 
-    <resultMap id="StampResultMap" type="com.ssafy.layover.stamp.Stamp">
-        <id     column="id"         property="id"/>
-        <result column="user_id"    property="userId"/>
-        <result column="place_id"   property="placeId"/>
-        <result column="place_name" property="placeName"/>
-        <result column="photo_url"  property="photoUrl"/>
-        <result column="visited_at" property="visitedAt"/>
-    </resultMap>
-
     <insert id="insert" parameterType="com.ssafy.layover.stamp.Stamp">
         INSERT INTO stamps (id, user_id, place_id, photo_url, visited_at)
         VALUES (#{id}, #{userId}, #{placeId}, #{photoUrl}, #{visitedAt})
     </insert>
 
-    <select id="findByUserId" resultMap="StampResultMap">
-        SELECT s.id, s.user_id, s.place_id, p.name AS place_name, s.photo_url, s.visited_at
+    <!--
+      마이페이지의 인증 사진 목록과 스탬프 지도가 이 한 방으로 그려진다.
+      좌표와 카테고리는 stamps 에 없으므로 places 를 조인해 가져온다.
+
+      MyBatisConfig 가 mapUnderscoreToCamelCase(false) 이므로 별칭을
+      DTO 필드명과 똑같이 camelCase 로 적어야 매핑된다.
+    -->
+    <select id="findMyStamps" resultType="com.ssafy.layover.stamp.MyStampResponse">
+        SELECT s.id          AS id,
+               s.place_id    AS placeId,
+               p.name        AS placeName,
+               p.category    AS category,
+               s.photo_url   AS photoUrl,
+               s.visited_at  AS visitedAt,
+               p.latitude    AS latitude,
+               p.longitude   AS longitude
         FROM stamps s
         LEFT JOIN places p ON s.place_id = p.id
         WHERE s.user_id = #{userId}
         ORDER BY s.visited_at DESC
     </select>
 
-    <select id="existsByUserIdAndPlaceId" resultType="boolean">
-        SELECT COUNT(*) > 0
+    <select id="existsByUserIdAndPlaceIdBetween" resultType="boolean">
+        SELECT COUNT(*) &gt; 0
         FROM stamps
-        WHERE user_id = #{userId} AND place_id = #{placeId}
+        WHERE user_id = #{userId}
+          AND place_id = #{placeId}
+          AND visited_at &gt;= #{from}
+          AND visited_at &lt; #{to}
     </select>
 
 </mapper>

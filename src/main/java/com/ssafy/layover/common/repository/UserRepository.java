@@ -67,4 +67,10 @@ public interface UserRepository extends JpaRepository<User, String> {
     @Query("UPDATE User u SET u.deletedAt = :deletedAt WHERE u.id = :userId")
     void updateDeletedAt(@Param("userId") String userId,
                          @Param("deletedAt") LocalDateTime deletedAt);
+
+    /**
+     * 생일 테마 판정용. 생일 정보가 없으면 null 을 반환한다.
+     */
+    @Query("SELECT u.birthDate FROM User u WHERE u.id = :userId")
+    LocalDate findBirthDate(@Param("userId") String userId);
 }

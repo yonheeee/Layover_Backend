@@ -30,6 +30,25 @@ public class FileUploadController {
         return upload(file, "profile/images", "프로필 이미지");
     }
 
+    /**
+     * 스탬프 인증 사진(엽서).
+     *
+     * <p>예전에는 합성된 엽서를 dataURL 그대로 localStorage에 쌓았다. 장당
+     * 300~500KB인데 localStorage 한도가 5~10MB라 20장쯤에서 저장이 조용히
+     * 멈췄고, 기기를 바꾸면 도감이 통째로 사라졌다. 이제 여기에 올리고
+     * URL만 들고 다닌다.
+     *
+     * <p>파일 저장은 트랜잭션 롤백에 참여하지 못하므로 스탬프 저장보다
+     * 먼저 끝내고 URL만 넘긴다. 스탬프가 실패하면 고아 파일이 남지만,
+     * 사진이 비어 있는 도감 항목보다는 낫다.
+     */
+    @PostMapping("/stamp-photo")
+    public ResponseEntity<ApiResponse<String>> uploadStampPhoto(@RequestParam("file") MultipartFile file) {
+        ResponseEntity<ApiResponse<String>> invalidResponse = validateImage(file);
+        if (invalidResponse != null) return invalidResponse;
+        return upload(file, "stamps/photos", "인증 사진");
+    }
+
     @PostMapping("/file")
     public ResponseEntity<ApiResponse<String>> uploadFile(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
