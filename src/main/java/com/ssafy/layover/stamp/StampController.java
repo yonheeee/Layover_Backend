@@ -40,8 +40,15 @@ public class StampController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
+    /**
+     * 내가 찍은 스탬프 목록.
+     *
+     * <p>마이페이지의 인증 사진 그리드와 스탬프 지도가 이 응답만 보고 그려진다.
+     * 예전에는 목록이 localStorage 에만 있어서, 사진은 서버에 멀쩡히 있는데
+     * 다른 기기로 로그인하면 그리드와 지도가 텅 비었다.
+     */
     @GetMapping("/my")
-    public ResponseEntity<ApiResponse<List<Stamp>>> getMyStamps(
+    public ResponseEntity<ApiResponse<List<MyStampResponse>>> getMyStamps(
             @AuthenticationPrincipal String userId) {
         return ResponseEntity.ok(ApiResponse.success(stampService.getMyStamps(userId)));
     }

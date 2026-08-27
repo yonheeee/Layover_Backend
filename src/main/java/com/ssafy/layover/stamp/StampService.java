@@ -187,7 +187,13 @@ public class StampService {
         return EARTH_RADIUS_METERS * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
-    public List<Stamp> getMyStamps(String userId) {
-        return stampMapper.findByUserId(userId);
+    /**
+     * 내가 찍은 스탬프 목록.
+     *
+     * <p>마이페이지의 인증 사진 그리드와 스탬프 지도가 이 응답만으로 그려진다.
+     * 지도 핀에 좌표가 필요해서 places 를 조인한 DTO 를 돌려준다.
+     */
+    public List<MyStampResponse> getMyStamps(String userId) {
+        return stampMapper.findMyStamps(userId);
     }
 }
