@@ -66,7 +66,9 @@ public class CharacterDrawService {
         if (!themes.isEmpty() && rnd.nextDouble() < themeProbability) {
             List<Character> themed = characterMapper.findByThemes(themes);
             if (!themed.isEmpty()) {
-                return themed.get(rnd.nextInt(themed.size()));
+                Character picked = themed.get(rnd.nextInt(themed.size()));
+                log.info("[Draw] 테마 {} 적중 → {}", themes, picked.getCode());
+                return picked;
             }
             log.warn("[Draw] 테마 {} 가 활성이지만 해당 카드가 없습니다. 일반 풀로 넘어갑니다.", themes);
         }
@@ -76,7 +78,18 @@ public class CharacterDrawService {
             throw new IllegalStateException(
                     "뽑을 수 있는 캐릭터가 없습니다. character_seed.sql 을 적용했는지 확인하세요.");
         }
-        return pool.get(rnd.nextInt(pool.size()));
+        Character picked = pool.get(rnd.nextInt(pool.size()));
+
+        // 테마가 왜 안 나왔는지 로그만 보고 가려낼 수 있어야 한다.
+        // 활성 테마가 비어 있으면 조건 자체가 안 맞은 것이고,
+        // 비어 있지 않은데 여기까지 왔으면 확률에서 빗나간 것이다.
+        if (themes.isEmpty()) {
+            log.info("[Draw] 활성 테마 없음 → 일반 풀 {}", picked.getCode());
+        } else {
+            log.info("[Draw] 테마 {} 활성이었으나 확률 {} 에서 빗나감 → 일반 풀 {}",
+                    themes, themeProbability, picked.getCode());
+        }
+        return picked;
     }
 
     /**
@@ -117,6 +130,9 @@ public class CharacterDrawService {
     private boolean isBirthday(String userId) {
         LocalDate birth = userRepository.findBirthDate(userId);
         if (birth == null) {
+            // 카카오로 가입하고 추가 정보를 건너뛰면 users.birth_date 가 비어 있다.
+            // 그러면 생일 테마는 영원히 뜨지 않는데, 화면에는 아무 흔적도 남지 않는다.
+            log.info("[Draw] 생일 정보가 없어 생일 테마를 건너뜁니다. userId={}", userId);
             return false;
         }
         LocalDate today = LocalDate.now(SEOUL);
