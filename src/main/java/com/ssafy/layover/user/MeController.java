@@ -3,8 +3,8 @@ package com.ssafy.layover.user;
 import com.ssafy.layover.common.dto.ApiResponse;
 import com.ssafy.layover.user.dto.UpdateNicknameRequest;
 import com.ssafy.layover.user.dto.UpdatePasswordRequest;
-import com.ssafy.layover.user.dto.UpdatePhoneRequest;
 import com.ssafy.layover.user.dto.UpdateProfileImageRequest;
+import com.ssafy.layover.user.dto.UpdateProfileInfoRequest;
 import com.ssafy.layover.user.dto.UserMeResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,12 +37,12 @@ public class MeController {
         }
     }
 
-    @PutMapping("/phone")
-    public ResponseEntity<ApiResponse<Void>> updatePhone(
+    @PutMapping("/profile-info")
+    public ResponseEntity<ApiResponse<Void>> updateProfileInfo(
             @AuthenticationPrincipal String userId,
-            @Valid @RequestBody UpdatePhoneRequest req) {
-        meService.updatePhone(userId, req.getPhone());
-        return ResponseEntity.ok(ApiResponse.success("전화번호가 변경되었습니다.", null));
+            @Valid @RequestBody UpdateProfileInfoRequest req) {
+        meService.updateProfileInfo(userId, req.getCurrentPassword(), req.getPhone(), req.getBirthDate());
+        return ResponseEntity.ok(ApiResponse.success("정보가 수정되었습니다.", null));
     }
 
     @PutMapping("/profile-image")
