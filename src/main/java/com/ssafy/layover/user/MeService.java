@@ -7,11 +7,14 @@ import com.ssafy.layover.common.repository.UserRepository;
 import com.ssafy.layover.login.KakaoLoginService;
 import com.ssafy.layover.user.dto.UserMeResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MeService {
@@ -33,8 +36,21 @@ public class MeService {
         userRepository.updateUsername(userId, username);
     }
 
-    public void updatePhone(String userId, String phone) {
-        userRepository.updatePhone(userId, phone);
+    /**
+     * "비밀번호 확인 API 를 먼저 호출하고 통과하면 수정 API 호출" 방식은 수정 API 를
+     * 직접 부르면 우회된다. 그래서 비밀번호를 이 요청 안에서 함께 검증한다.
+     */
+    public void updateProfileInfo(String userId, String currentPassword, String phone, LocalDate birthDate) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
+        if (user.getPasswordHash() != null) {
+            if (currentPassword == null || !bCryptPasswordEncoder.matches(currentPassword, user.getPasswordHash())) {
+                throw new IllegalArgumentException("현재 비밀번호가 올바르지 않습니다.");
+            }
+        } else {
+            log.info("[Me] 비밀번호 없는 계정의 프로필 정보 수정 (userId={})", userId);
+        }
+        userRepository.updateProfileInfo(userId, phone, birthDate);
     }
 
     public void updateProfileImage(String userId, String profileImage) {

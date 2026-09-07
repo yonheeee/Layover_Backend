@@ -19,8 +19,13 @@ public class UserMeResponse {
     private String profileImage;
     private int stampCount;
     private String role;
+    private boolean profileComplete;
 
     public static UserMeResponse from(User user) {
+        boolean profileComplete = user.getRealName() != null && !user.getRealName().isBlank()
+                && user.getBirthDate() != null
+                && user.getPhone() != null && !user.getPhone().isBlank();
+
         return new UserMeResponse(
                 user.getUsername(),
                 user.getRealName(),
@@ -30,7 +35,8 @@ public class UserMeResponse {
                 user.getPhone(),
                 user.getProfileImage(),
                 user.getStampCount(),
-                user.getRole()
+                user.getRole(),
+                profileComplete
         );
     }
 }
