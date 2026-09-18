@@ -68,10 +68,10 @@ jobs:
             APP_CORS_ALLOWED_ORIGINS=https://layover-frontend.pages.dev
             SPRING_DATASOURCE_URL=${{ vars.SPRING_DATASOURCE_URL }}
             SPRING_DATASOURCE_USERNAME=${{ vars.SPRING_DATASOURCE_USERNAME }}
-            SPRING_DATA_REDIS_HOST=simple-martin-168901.upstash.io
-            SPRING_DATA_REDIS_PORT=6379
-            SPRING_DATA_REDIS_USERNAME=default
-            SPRING_DATA_REDIS_SSL_ENABLED=true
+            SPRING_DATA_REDIS_HOST=${{ vars.REDIS_HOST }}
+            SPRING_DATA_REDIS_PORT=${{ vars.REDIS_PORT }}
+            SPRING_DATA_REDIS_USERNAME=${{ vars.REDIS_USERNAME }}
+            SPRING_DATA_REDIS_SSL_ENABLED=${{ vars.REDIS_SSL_ENABLED }}
             STORAGE_TYPE=s3
             AWS_REGION=ap-northeast-2
             AWS_S3_BUCKET=layover-community-image-storage-989142032322-ap-northeast-2-an
@@ -80,7 +80,7 @@ jobs:
           secrets: |-
             /secrets/application-secrets.properties=layover-app-secrets:latest
             SPRING_DATASOURCE_PASSWORD=layover-db-password:latest
-            SPRING_DATA_REDIS_PASSWORD=layover-redis-password:3
+            SPRING_DATA_REDIS_PASSWORD=layover-redis-password:latest
             AWS_ACCESS_KEY_ID=layover-aws-access-key-id:latest
             AWS_SECRET_ACCESS_KEY=layover-aws-secret-access-key:latest
           secrets_update_strategy: overwrite

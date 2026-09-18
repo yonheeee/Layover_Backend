@@ -49,7 +49,17 @@ GCP_PROJECT_ID
 GCP_REGION=asia-northeast1
 GCP_WORKLOAD_IDENTITY_PROVIDER
 GCP_DEPLOY_SERVICE_ACCOUNT
+REDIS_HOST
+REDIS_PORT=6379
+REDIS_USERNAME=default
+REDIS_SSL_ENABLED=true
 ```
+
+Redis는 이메일 인증번호와 채팅 보조 저장소로 사용합니다. Upstash 데이터베이스를
+새로 만들거나 교체할 때는 주소·포트·사용자 이름을 위 GitHub 변수에 등록하고,
+비밀번호는 Secret Manager의 `layover-redis-password`에 새 버전으로 등록합니다.
+배포 workflow는 `latest` 버전을 사용하므로 비밀번호 교체 후 재배포하면 됩니다.
+기존 Upstash 주소를 workflow 파일에 직접 작성하지 않습니다.
 
 `GCP_PROJECT_ID`가 비어 있으면 CD 작업은 안전하게 건너뜁니다. 최초 Cloud
 Run 배포와 Workload Identity 설정을 마치면 `main` 푸시마다 테스트와 Docker
