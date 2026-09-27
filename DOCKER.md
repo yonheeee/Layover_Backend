@@ -1,75 +1,70 @@
-# Docker 로컬 실행
+# Docker 통합 실행
 
-MySQL과 Spring Boot 백엔드를 한 번에 실행합니다.
+Vue 프론트엔드, Spring Boot 백엔드, MySQL을 한 번에 실행합니다.
 
-## 실행
+두 저장소는 아래처럼 같은 폴더에 있어야 합니다.
 
-```powershell
-docker compose up --build
+```text
+C:\Users\사용자\
+├─ Layover\
+└─ Layover_Backend\
 ```
 
-- 백엔드: `http://localhost:8080`
-- MySQL(호스트 접속): `localhost:3307`
-- DB: `daejeon_layover`
-- 로컬 DB 사용자: `ssafy`
-- 로컬 DB 비밀번호: `ssafy`
+## 한 번 클릭해서 실행
 
-처음 실행할 때 `src/main/resources/db/schema.sql`이 새 Docker 볼륨에 자동 적용됩니다.
-이 스키마에는 DROP TABLE 구문이 있지만, 최초 생성되는 Docker 전용 볼륨 안에서만 실행됩니다.
-PC에 설치된 기존 MySQL 데이터베이스에는 영향을 주지 않습니다.
+`Layover_Backend\start-layover.cmd`를 더블클릭합니다.
 
-MySQL과 백엔드가 준비되면 서버가 관광지 데이터 존재 여부를 확인합니다.
-TourAPI 관광지가 0개일 때만 내부 서비스로 최초 동기화를 한 번 실행하며,
-이미 데이터가 있으면 외부 API 호출 한도를 보호하기 위해 건너뜁니다.
+스크립트는 다음 작업을 자동으로 수행합니다.
 
-`POST /api/admin/places/sync`는 외부에 무인증으로 공개하지 않고 기존처럼
-ADMIN 권한을 유지합니다.
+1. Docker Desktop이 꺼져 있으면 실행하고 준비될 때까지 대기
+2. `.env.docker`가 없으면 예제 파일로 생성
+3. 프론트엔드, 백엔드, MySQL 이미지 빌드 및 실행
+4. 서비스가 준비되면 `http://localhost:5173`을 브라우저로 열기
 
-관광지 동기화에는 `src/main/resources/application-local.properties`의 TourAPI 및
-Kakao API 키를 사용합니다. 이 파일은 백엔드 컨테이너에 읽기 전용으로 연결되며
-Docker 이미지에는 포함되지 않습니다.
+종료할 때는 `stop-layover.cmd`를 더블클릭합니다. 종료해도 DB와 업로드 볼륨은 보존됩니다.
 
-동기화 결과 확인:
+## 주소
 
-```powershell
-docker compose logs backend | Select-String "PlaceSyncOnStartup|TourAPI"
-```
+- 통합 웹 화면: `http://localhost:5173`
+- 백엔드 직접 접근: `http://localhost:8080`
+- MySQL 호스트 접근: `localhost:3307`
+- DB 이름: `daejeon_layover`
+- DB 사용자/비밀번호: `ssafy` / `ssafy`
 
-## 백그라운드 실행
+프론트엔드 Nginx가 `/api`와 `/uploads` 요청을 백엔드 컨테이너로 전달하므로 브라우저에서는 프론트엔드 주소 하나만 사용합니다.
 
-```powershell
-docker compose up --build -d
-docker compose logs -f backend
-```
+## 외부 API 설정
 
-## 종료
-
-```powershell
-docker compose down
-```
-
-## DB까지 완전히 초기화
-
-다음 명령은 Docker의 Layover DB와 업로드 파일을 삭제합니다.
-
-```powershell
-docker compose down -v
-```
-
-## 외부 API 및 S3 설정
-
-`.env.docker`는 Git에 포함되지 않습니다. 외부 API 또는 S3가 필요하면
-`.env.docker.example`을 참고하여 현재 `.env.docker`에 값을 추가하세요.
-
-S3를 사용할 경우 최소 설정:
+외부 API 없이도 서비스와 기본 화면은 실행됩니다. 카카오 지도, 메일 인증, 관광지 동기화 등 실제 연동 기능을 사용하려면 `.env.docker`에 해당 값을 입력합니다.
 
 ```dotenv
-STORAGE_TYPE=s3
-AWS_REGION=ap-northeast-2
-AWS_S3_BUCKET=버킷이름
-AWS_S3_PUBLIC_BASE_URL=공개기본URL
-AWS_ACCESS_KEY_ID=액세스키
-AWS_SECRET_ACCESS_KEY=비밀액세스키
+VITE_KAKAO_JS_KEY=카카오_JavaScript_키
+KAKAO_REST_API_KEY=카카오_REST_API_키
+KAKAO_CLIENT_ID=카카오_REST_API_키
+KAKAO_CLIENT_SECRET=카카오_클라이언트_시크릿
+KAKAO_ADMIN_KEY=카카오_관리자_키
+TOUR_API_KEY=관광공사_디코딩_키
+PLACE_SYNC_ON_STARTUP=true
+MAIL_USERNAME=메일주소
+MAIL_PASSWORD=앱_비밀번호
 ```
 
-비밀키가 들어간 `.env.docker`는 커밋하지 마세요.
+프론트엔드의 기존 `.env`에 `VITE_KAKAO_JS_KEY`가 있으면 실행 스크립트가 해당 값을 자동으로 사용합니다. 비밀키가 들어간 `.env.docker`는 Git에 커밋하지 않습니다.
+
+`TOUR_API_KEY` 없이 `PLACE_SYNC_ON_STARTUP=true`만 설정하면 관광 API 인증 오류가 발생합니다. 두 값을 함께 설정해야 최초 빈 DB에 관광지가 자동으로 수집됩니다.
+
+## 터미널에서 실행
+
+```powershell
+docker compose --env-file .env.docker up --build -d
+docker compose --env-file .env.docker logs -f
+docker compose --env-file .env.docker down
+```
+
+DB와 업로드 파일까지 완전히 삭제하려는 경우에만 다음 명령을 사용합니다.
+
+```powershell
+docker compose --env-file .env.docker down -v
+```
+
+`down -v`는 Docker 안의 Layover 로컬 DB와 업로드 파일을 삭제하며 복구할 수 없습니다.
