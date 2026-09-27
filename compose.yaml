@@ -39,9 +39,10 @@ services:
         required: false
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SPRING_CONFIG_IMPORT: optional:file:/run/secrets/application-local.properties
-      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/aws-credentials
+      SPRING_CONFIG_IMPORT: optional:file:/run/config/application-local.properties
       SERVER_PORT: 8080
+      APP_FRONTEND_URL: http://localhost:${FRONTEND_HOST_PORT:-5173}
+      APP_CORS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_HOST_PORT:-5173}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/daejeon_layover?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
       SPRING_DATASOURCE_USERNAME: ssafy
       SPRING_DATASOURCE_PASSWORD: ssafy
@@ -50,18 +51,14 @@ services:
       REDIS_HOST: 127.0.0.1
       EMAIL_VERIFICATION_STORAGE: memory
       PLACE_SYNC_PUBLIC_ENABLED: "false"
-      PLACE_SYNC_ON_STARTUP: "true"
+      PLACE_SYNC_ON_STARTUP: ${PLACE_SYNC_ON_STARTUP:-false}
       UPLOAD_DIR: /app/uploads
       TZ: Asia/Seoul
     ports:
       - "${BACKEND_HOST_PORT:-8080}:8080"
     volumes:
       - layover-uploads:/app/uploads
-    secrets:
-      - source: application-local-properties
-        target: application-local.properties
-      - source: aws-credentials
-        target: aws-credentials
+      - ./src/main/resources:/run/config:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -74,6 +71,22 @@ services:
       retries: 20
       start_period: 20s
 
+  frontend:
+    container_name: layover-frontend
+    build:
+      context: ../Layover
+      dockerfile: Dockerfile
+      args:
+        VITE_KAKAO_JS_KEY: ${VITE_KAKAO_JS_KEY:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_HOST_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - layover-network
+
 volumes:
   layover-mysql-data:
   layover-uploads:
@@ -81,9 +94,3 @@ volumes:
 networks:
   layover-network:
     driver: bridge
-
-secrets:
-  application-local-properties:
-    file: ./src/main/resources/application-local.properties
-  aws-credentials:
-    file: ${USERPROFILE}/.aws/credentials
