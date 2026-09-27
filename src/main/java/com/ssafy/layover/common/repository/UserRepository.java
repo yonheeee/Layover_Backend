@@ -65,9 +65,10 @@ public interface UserRepository extends JpaRepository<User, String> {
 
     @Transactional
     @Modifying
-    @Query("UPDATE User u SET u.deletedAt = :deletedAt WHERE u.id = :userId")
-    void updateDeletedAt(@Param("userId") String userId,
-                         @Param("deletedAt") LocalDateTime deletedAt);
+    @Query("UPDATE User u SET u.deletedAt = :deletedAt, u.email = :email, u.kakaoId = NULL WHERE u.id = :userId")
+    void markWithdrawn(@Param("userId") String userId,
+                       @Param("deletedAt") LocalDateTime deletedAt,
+                       @Param("email") String email);
 
     /**
      * 생일 테마 판정용. 생일 정보가 없으면 null 을 반환한다.

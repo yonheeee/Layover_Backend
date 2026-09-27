@@ -75,7 +75,8 @@ public class MeService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
 
-        userRepository.updateDeletedAt(userId, LocalDateTime.now());
+        // email/kakao_id 는 유니크 키라 남겨두면 같은 계정으로 재가입·재로그인이 막힌다.
+        userRepository.markWithdrawn(userId, LocalDateTime.now(), "deleted_" + userId + "@deleted.local");
 
         if (user.getKakaoId() != null) {
             try {
