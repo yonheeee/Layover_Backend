@@ -10,6 +10,9 @@
 --    - characters      : 스탬프 개수 해금 → code 기반 랜덤 뽑기 풀
 --    - user_characters : 보유 목록 → 뽑기 로그 (중복 허용)
 --    - stamps          : 장소당 평생 1회 → 하루 1회 (DB 유니크로 보장)
+--
+--  ⚠ 로컬 MySQL 전용. 운영 TiDB에는 character_collection_tidb.sql 을 쓴다.
+--    (TiDB는 ALTER TABLE 로 STORED 생성 컬럼을 추가할 수 없어 3번 블록이 실패한다.)
 -- =============================================================
 
 USE `daejeon_layover`;

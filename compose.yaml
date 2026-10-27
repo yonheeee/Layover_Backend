@@ -16,6 +16,10 @@ services:
     volumes:
       - layover-mysql-data:/var/lib/mysql
       - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+      # 캐릭터 도감 마이그레이션과 147종 시드. 빠지면 도감 · 스탬프 저장 API가 500을 낸다.
+      # initdb 스크립트는 DB 볼륨이 비어 있을 때 파일명 순서대로 한 번만 실행된다.
+      - ./src/main/resources/db/character_collection.sql:/docker-entrypoint-initdb.d/002-character-collection.sql:ro
+      - ./src/main/resources/db/character_seed.sql:/docker-entrypoint-initdb.d/003-character-seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 5s

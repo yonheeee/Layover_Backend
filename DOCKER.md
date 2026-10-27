@@ -68,3 +68,20 @@ docker compose --env-file .env.docker down -v
 ```
 
 `down -v`는 Docker 안의 Layover 로컬 DB와 업로드 파일을 삭제하며 복구할 수 없습니다.
+
+## 캐릭터 도감 마이그레이션
+
+새로 만드는 로컬 DB에는 `schema.sql` → `character_collection.sql` → `character_seed.sql`이 순서대로 자동 적용됩니다.
+
+이미 만들어진 DB 볼륨에는 자동 적용되지 않습니다(초기화 스크립트는 볼륨이 비어 있을 때 한 번만 실행됨). 꿈씨 도감이 "도감 정보를 불러오지 못했어요"로 나오면, DB를 지우지 않고 아래처럼 두 파일만 적용합니다.
+
+```powershell
+docker cp src/main/resources/db/character_collection.sql layover-mysql:/tmp/002-character-collection.sql
+docker cp src/main/resources/db/character_seed.sql layover-mysql:/tmp/003-character-seed.sql
+docker exec layover-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 daejeon_layover < /tmp/002-character-collection.sql'
+docker exec layover-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 daejeon_layover < /tmp/003-character-seed.sql'
+```
+
+PowerShell 파이프(`Get-Content ... | docker exec -i ...`)로 넣으면 Windows PowerShell 5.1에서 한글 캐릭터 이름이 `?`로 깨지므로, 파일을 컨테이너에 복사해 컨테이너 안에서 실행합니다.
+
+운영(TiDB)에는 `character_collection_tidb.sql`을 사용합니다. TiDB는 `ALTER TABLE`로 STORED 생성 컬럼을 추가할 수 없어서 기존 파일이 실패합니다. 실행 순서와 사전 점검 쿼리는 파일 머리말에 있습니다.
