@@ -36,9 +36,11 @@ SET NAMES utf8mb4;
 --      → 비어 있으면 마이그레이션이 적용되지 않은 상태 (도감 API 500의 원인)
 --  SELECT COUNT(*) FROM `user_characters`;
 --      → 0이 아니면 아래 1번 블록이 도감 기록을 지운다. 먼저 백업한다.
---  SELECT user_id, place_id, DATE(visited_at) d, COUNT(*) c
---    FROM `stamps` GROUP BY user_id, place_id, d HAVING c > 1;
---      → 결과가 있으면 3번 블록의 유니크 인덱스 생성이 실패한다. 중복부터 정리한다.
+--  SELECT s.user_id, s.place_id, s.d, COUNT(*) c
+--    FROM (SELECT user_id, place_id, DATE(visited_at) AS d FROM `stamps`) s
+--    GROUP BY s.user_id, s.place_id, s.d HAVING COUNT(*) > 1;
+--      → 결과가 있으면 4번 블록의 유니크 인덱스 생성이 실패한다. 중복부터 정리한다.
+--        (TiDB는 ONLY_FULL_GROUP_BY 라서 DATE() 를 하위 쿼리에서 먼저 계산한다.)
 --
 --  가상 생성 컬럼에 유니크 인덱스를 만들 수 있는지 빈 임시 테이블로 확인한다.
 --  운영 테이블에는 영향이 없다. 실패하면 이 파일을 실행하지 말고 알려 주세요.
